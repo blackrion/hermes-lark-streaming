@@ -80,11 +80,7 @@ class HermesCompat:
             _logger.debug("HLS: AIAgent not available yet")
         
         # FeishuAdapter
-        try:
-            from gateway.platforms.feishu import FeishuAdapter
-            self.feishu_adapter_class = FeishuAdapter
-        except (ImportError, AttributeError):
-            _logger.debug("HLS: FeishuAdapter not available")
+        self.feishu_adapter_class = self._resolve_feishu_adapter_class()
         
         # Cron scheduler
         for mod_name in ("cron.scheduler", "gateway.cron.scheduler"):
@@ -98,7 +94,63 @@ class HermesCompat:
         
         # Conversation loop (with namespace collision workaround)
         self._resolve_conversation_loop()
-    
+
+    def _resolve_feishu_adapter_class(self) -> Any | None:
+        """Resolve the actual FeishuAdapter class used by this Hermes runtime.
+
+        Hermes v0.17 loads the bundled Feishu platform as
+        ``hermes_plugins.feishu_platform.adapter`` and registers the runtime
+        adapter through ``platform_registry``.  Importing the legacy
+        ``gateway.platforms.feishu`` path can therefore patch the wrong class or
+        fail outright.  Prefer the registry entry first, then fall back through
+        known module layouts for older/newer Hermes versions.
+        """
+        try:
+            from gateway.platform_registry import platform_registry
+            import inspect
+
+            entry = platform_registry.get("feishu")
+            factory = getattr(entry, "adapter_factory", None) if entry is not None else None
+            if factory is not None:
+                closure_vars = inspect.getclosurevars(factory)
+                for scope in (closure_vars.nonlocals, closure_vars.globals):
+                    candidate = scope.get("FeishuAdapter")
+                    if isinstance(candidate, type):
+                        _logger.info(
+                            "HLS: FeishuAdapter resolved via platform_registry (%s)",
+                            getattr(candidate, "__module__", "?"),
+                        )
+                        return candidate
+
+                candidate = getattr(factory, "__globals__", {}).get("FeishuAdapter")
+                if isinstance(candidate, type):
+                    _logger.info(
+                        "HLS: FeishuAdapter resolved via platform_registry globals (%s)",
+                        getattr(candidate, "__module__", "?"),
+                    )
+                    return candidate
+        except Exception as e:
+            _logger.debug("HLS: FeishuAdapter registry resolution failed: %s", e)
+
+        for mod_name in (
+            "hermes_plugins.feishu_platform.adapter",
+            "plugins.platforms.feishu.adapter",
+            "gateway.platforms.feishu",
+        ):
+            try:
+                mod = importlib.import_module(mod_name)
+                candidate = getattr(mod, "FeishuAdapter", None)
+                if isinstance(candidate, type):
+                    _logger.info("HLS: FeishuAdapter resolved via %s", mod_name)
+                    return candidate
+            except ImportError:
+                continue
+            except Exception as e:
+                _logger.debug("HLS: FeishuAdapter import failed for %s: %s", mod_name, e)
+
+        _logger.debug("HLS: FeishuAdapter not available")
+        return None
+
     def _resolve_conversation_loop(self) -> None:
         """Resolve agent.conversation_loop, handling Apple Silicon namespace collision."""
         # Strategy 1: sys.modules cache
