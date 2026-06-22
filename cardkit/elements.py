@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import TYPE_CHECKING, Any
 
 from .i18n import _LOCALES, _T, _i18n, _t
@@ -80,6 +81,8 @@ def _build_header(status: str) -> dict[str, Any]:
 
 
 _IMG_MD_PATTERN = re.compile(r"!\[([^\]]*)\]\((img_[^)\s]+)\)")
+_FOOTER_FIELD_SEPARATOR = " · "
+_FOOTER_LINE_MAX_WIDTH = 160
 
 
 def _extract_images_from_markdown(text: str) -> tuple[str, list[dict]]:
@@ -857,6 +860,49 @@ def _build_background_review_panel(
     return panel
 
 
+def _footer_display_width(text: str) -> int:
+    """Approximate rendered footer width; count wide CJK glyphs as two cells."""
+    width = 0
+    for ch in text:
+        if unicodedata.combining(ch):
+            continue
+        width += 2 if unicodedata.east_asian_width(ch) in {"F", "W"} else 1
+    return width
+
+
+def _wrap_footer_parts(
+    parts: list[tuple[str, str]],
+    max_width: int = _FOOTER_LINE_MAX_WIDTH,
+) -> tuple[list[str], list[str]]:
+    """Keep footer on one line by default, wrapping between fields only when too wide."""
+    en_lines: list[str] = []
+    zh_lines: list[str] = []
+    current_en: list[str] = []
+    current_zh: list[str] = []
+
+    for en, zh in parts:
+        candidate_en = _FOOTER_FIELD_SEPARATOR.join([*current_en, en])
+        candidate_zh = _FOOTER_FIELD_SEPARATOR.join([*current_zh, zh])
+        candidate_width = max(
+            _footer_display_width(candidate_en),
+            _footer_display_width(candidate_zh),
+        )
+        if current_en and candidate_width > max_width:
+            en_lines.append(_FOOTER_FIELD_SEPARATOR.join(current_en))
+            zh_lines.append(_FOOTER_FIELD_SEPARATOR.join(current_zh))
+            current_en = [en]
+            current_zh = [zh]
+        else:
+            current_en.append(en)
+            current_zh.append(zh)
+
+    if current_en:
+        en_lines.append(_FOOTER_FIELD_SEPARATOR.join(current_en))
+        zh_lines.append(_FOOTER_FIELD_SEPARATOR.join(current_zh))
+
+    return en_lines, zh_lines
+
+
 def _build_footer_elements(
     footer_data: dict | None,
     is_error: bool = False,
@@ -869,11 +915,8 @@ def _build_footer_elements(
         fields = [["status", "elapsed", "context", "model"]]
 
     data = footer_data or {}
-    en_lines: list[str] = []
-    zh_lines: list[str] = []
+    rendered_parts: list[tuple[str, str]] = []
     for row in fields:
-        en_parts: list[str] = []
-        zh_parts: list[str] = []
         for field in row:
             en, zh = _render_footer_field(
                 field,
@@ -884,16 +927,12 @@ def _build_footer_elements(
                 show_empty=show_empty,
             )
             if en:
-                en_parts.append(en)
-                if zh:
-                    zh_parts.append(zh)
-        if en_parts:
-            en_lines.append(" · ".join(en_parts))
-            zh_lines.append(" · ".join(zh_parts))
+                rendered_parts.append((en, zh or en))
 
-    if not en_lines:
+    if not rendered_parts:
         return []
 
+    en_lines, zh_lines = _wrap_footer_parts(rendered_parts)
     en_content = "\n".join(en_lines)
     zh_content = "\n".join(zh_lines)
     if is_error:

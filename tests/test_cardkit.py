@@ -223,12 +223,26 @@ class TestBuildFooterElements:
         )
         assert "Elapsed" in result[1]["content"]
 
-    def test_multi_row_fields(self) -> None:
+    def test_configured_rows_default_to_single_footer_line(self) -> None:
         result = _build_footer_elements(
             {"duration": 5, "model": "gpt"},
             fields=[["elapsed"], ["model"]],
         )
-        assert "\n" in result[1]["content"]
+        content = result[1]["content"]
+        assert "5.0s" in content
+        assert "gpt" in content
+        assert "\n" not in content
+
+    def test_long_footer_wraps_between_fields(self) -> None:
+        result = _build_footer_elements(
+            {"duration": 5, "model": "model-" + "x" * 220},
+            fields=[["elapsed", "model"]],
+        )
+        content = result[1]["content"]
+        assert "5.0s" in content
+        assert "model-" in content
+        assert "\n" in content
+        assert content.split("\n", 1)[0] == "5.0s"
 
     def test_none_footer_data_renders_status(self) -> None:
         result = _build_footer_elements(None)
