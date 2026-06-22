@@ -474,7 +474,13 @@ class TestBuildStreamingCardV2:
     def test_structure(self) -> None:
         card = build_streaming_card_v2()
         assert card["schema"] == "2.0"
+        assert card["config"]["update_multi"] is True
         assert card["config"]["streaming_mode"] is True
+        assert card["config"]["streaming_config"] == {
+            "print_frequency_ms": {"default": 70},
+            "print_step": {"default": 1},
+            "print_strategy": "delay",
+        }
         assert card["body"]["elements"]
 
     def test_with_unified_panel(self) -> None:
@@ -503,6 +509,20 @@ class TestBuildStreamingCardV2:
     def test_print_strategy_fast(self) -> None:
         card = build_streaming_card_v2(show_reasoning=True, print_strategy="fast")
         assert card["config"]["streaming_config"]["print_strategy"] == "fast"
+
+    def test_custom_streaming_config_overrides_defaults(self) -> None:
+        card = build_streaming_card_v2(
+            streaming_config={
+                "print_frequency_ms": {"default": 90, "pc": 50},
+                "print_step": {"default": 2},
+                "print_strategy": "fast",
+            }
+        )
+        assert card["config"]["streaming_config"] == {
+            "print_frequency_ms": {"default": 90, "pc": 50},
+            "print_step": {"default": 2},
+            "print_strategy": "fast",
+        }
 
     def test_initial_summary_has_i18n_content(self) -> None:
         """Streaming card must set both content and i18n_content for summary.

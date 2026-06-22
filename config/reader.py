@@ -35,6 +35,62 @@ def _to_bool(val: Any, default: bool = False) -> bool:
     return default
 
 
+_STREAMING_DEVICE_KEYS = ("default", "android", "ios", "pc")
+
+
+def _to_positive_int(
+    val: Any,
+    default: int,
+    *,
+    minimum: int = 1,
+    maximum: int = 100000,
+) -> int:
+    """Convert a config value to a bounded positive integer."""
+    if isinstance(val, bool):
+        return default
+    try:
+        num = int(float(val))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, num))
+
+
+def _to_device_number_map(
+    val: Any,
+    *,
+    default: int,
+    minimum: int = 1,
+    maximum: int = 100000,
+) -> dict[str, int]:
+    """Normalize CardKit per-device numeric maps.
+
+    Feishu's official ``streaming_config`` accepts objects such as
+    ``{"default": 70, "pc": 70}``.  For operator convenience, this also
+    accepts a scalar and treats it as ``{"default": scalar}``.
+    """
+    if isinstance(val, dict):
+        result: dict[str, int] = {}
+        for key in _STREAMING_DEVICE_KEYS:
+            if key in val:
+                result[key] = _to_positive_int(
+                    val.get(key),
+                    default,
+                    minimum=minimum,
+                    maximum=maximum,
+                )
+        if "default" not in result:
+            result["default"] = default
+        return result
+    return {
+        "default": _to_positive_int(
+            val,
+            default,
+            minimum=minimum,
+            maximum=maximum,
+        )
+    }
+
+
 class Config:
     """插件配置，惰性读取 Hermes 主配置.
 
@@ -136,6 +192,40 @@ class Config:
         sec = self._plugin_sec()
         strategy = sec.get("print_strategy", "delay")
         return strategy if strategy in ("fast", "delay") else "delay"
+
+    @property
+    def streaming_config(self) -> dict[str, Any]:
+        """官方 CardKit ``streaming_config`` 参数.
+
+        对照飞书 CardKit 流式更新 OpenAPI：在创建流式卡片时前置指定
+        ``print_frequency_ms``、``print_step`` 和 ``print_strategy``，并在
+        整个流式过程中保持不变。默认值保持插件既有体验：70ms、步长 1、
+        ``delay``。
+        """
+        sec = self._plugin_sec()
+        raw = sec.get("streaming_config", {})
+        if not isinstance(raw, dict):
+            raw = {}
+
+        strategy = raw.get("print_strategy", self.print_strategy)
+        if strategy not in ("fast", "delay"):
+            strategy = "delay"
+
+        return {
+            "print_frequency_ms": _to_device_number_map(
+                raw.get("print_frequency_ms", sec.get("print_frequency_ms", 70)),
+                default=70,
+                minimum=1,
+                maximum=2000,
+            ),
+            "print_step": _to_device_number_map(
+                raw.get("print_step", sec.get("print_step", 1)),
+                default=1,
+                minimum=1,
+                maximum=2000,
+            ),
+            "print_strategy": strategy,
+        }
 
     @property
     def flush_interval_ms(self) -> float:

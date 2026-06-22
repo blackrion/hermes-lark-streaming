@@ -222,6 +222,7 @@ class UnifiedControllerMixin:
                     include_loading_hint=True,      # "正在加载上下文..."
                     streaming_panel_expanded=self._cfg.streaming_panel_expanded,
                     print_strategy=self._cfg.print_strategy,
+                    streaming_config=self._cfg.streaming_config,
                     header_enabled=self._cfg.header_enabled,
                 )
                 card_id = await self._client.cardkit_create(card)

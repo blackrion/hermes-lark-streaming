@@ -94,7 +94,13 @@ class MockFeishuServer:
         return msg_id
 
     async def cardkit_stream_element(
-        self, card_id: str, element_id: str, content: str, *, sequence: int = 0,
+        self,
+        card_id: str,
+        element_id: str,
+        content: str,
+        *,
+        sequence: int = 0,
+        uuid: str | None = None,
     ) -> None:
         state = self._cards.get(card_id)
         if state is None:
@@ -106,8 +112,8 @@ class MockFeishuServer:
         # Update element content
         state.elements[element_id]["content"] = content
         state.sequence = sequence
-        state.actions_log.append({"op": "stream_element", "element_id": element_id, "content": content, "seq": sequence})
-        self._call_log.append({"op": "cardkit_stream_element", "card_id": card_id, "element_id": element_id, "content_len": len(content), "seq": sequence})
+        state.actions_log.append({"op": "stream_element", "element_id": element_id, "content": content, "seq": sequence, "uuid": uuid})
+        self._call_log.append({"op": "cardkit_stream_element", "card_id": card_id, "element_id": element_id, "content_len": len(content), "seq": sequence, "uuid": uuid})
 
     async def cardkit_batch_update(
         self, card_id: str, actions: list[dict[str, Any]], *, sequence: int = 0,

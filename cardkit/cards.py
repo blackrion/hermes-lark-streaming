@@ -174,6 +174,7 @@ def build_streaming_card_v2(
     show_streaming_element: bool = True,
     streaming_panel_expanded: bool = True,
     print_strategy: str = "delay",
+    streaming_config: dict[str, Any] | None = None,
     header_enabled: bool = False,
     include_unified_panel: bool = True,
     include_loading_hint: bool = True,
@@ -220,15 +221,22 @@ def build_streaming_card_v2(
     # ── Loading spinner ──
     elements.append(_loading_element())
 
+    effective_streaming_config: dict[str, Any] = {
+        "print_frequency_ms": {"default": 70},
+        "print_step": {"default": 1},
+        "print_strategy": print_strategy,
+    }
+    if isinstance(streaming_config, dict):
+        effective_streaming_config.update(streaming_config)
+        if "print_strategy" not in effective_streaming_config:
+            effective_streaming_config["print_strategy"] = print_strategy
+
     card: dict[str, Any] = {
         "schema": "2.0",
         "config": {
+            "update_multi": True,
             "streaming_mode": True,
-            "streaming_config": {
-                "print_frequency_ms": {"default": 70},
-                "print_step": {"default": 1},
-                "print_strategy": print_strategy,
-            },
+            "streaming_config": effective_streaming_config,
             "locales": _LOCALES,
             "summary": {
                 "content": _T["processing"][0],

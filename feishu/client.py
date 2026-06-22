@@ -275,6 +275,11 @@ class FeishuClient:
     def _dumps(obj: Any) -> str:
         return json.dumps(obj, ensure_ascii=False)
 
+    @staticmethod
+    def _stream_uuid(card_id: str, element_id: str, sequence: int) -> str:
+        """Build a bounded idempotency key for CardKit content streaming."""
+        return f"hls-{card_id[:20]}-{element_id[:20]}-{sequence}"[:64]
+
     async def send_card_to_chat(self, chat_id: str, card: dict[str, Any]) -> str:
         """发送独立卡片到聊天（非回复），返回 message_id."""
         request = (
@@ -384,6 +389,7 @@ class FeishuClient:
         content: str,
         *,
         sequence: int = 0,
+        uuid: str | None = None,
     ) -> None:
         """流式更新卡片内指定 element 的内容（打字机效果）.
 
@@ -393,8 +399,13 @@ class FeishuClient:
         改用 batch_update 的 partial_update_element 绕过此问题。
         """
         async def _do():
+            request_uuid = uuid or self._stream_uuid(card_id, element_id, sequence)
             body_builder = ContentCardElementRequestBody.builder().content(content)
             body_builder = body_builder.sequence(sequence)
+            if request_uuid:
+                uuid_setter = getattr(body_builder, "uuid", None)
+                if callable(uuid_setter):
+                    body_builder = uuid_setter(str(request_uuid)[:64])
             request = (
                 ContentCardElementRequest.builder()
                 .card_id(card_id)

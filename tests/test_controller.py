@@ -470,6 +470,30 @@ class TestDoCreateLinearCard:
         assert session.state == STREAMING
 
     @pytest.mark.asyncio
+    async def test_cardkit_create_uses_official_streaming_config(self) -> None:
+        ctrl = _setup_ctrl(linear=True)
+        ctrl._cfg._raw["hermes_lark_streaming"].update({
+            "streaming_config": {
+                "print_frequency_ms": {"default": 88, "pc": 44},
+                "print_step": {"default": 2},
+                "print_strategy": "fast",
+            }
+        })
+        session = _make_session("msg_create_config")
+        ctrl._sessions["msg_create_config"] = session
+
+        await ctrl._do_create_linear_card(session)
+
+        card = ctrl._client.cardkit_create.call_args.args[0]
+        assert card["config"]["update_multi"] is True
+        assert card["config"]["streaming_mode"] is True
+        assert card["config"]["streaming_config"] == {
+            "print_frequency_ms": {"default": 88, "pc": 44},
+            "print_step": {"default": 2},
+            "print_strategy": "fast",
+        }
+
+    @pytest.mark.asyncio
     async def test_cardkit_failure_falls_back(self) -> None:
         ctrl = _setup_ctrl(linear=True)
         client = ctrl._client

@@ -329,6 +329,62 @@ class TestPrintStrategy:
         assert cfg.print_strategy == "delay"
 
 
+class TestStreamingConfig:
+    def test_defaults_match_official_cardkit_streaming_defaults(self) -> None:
+        cfg = _make_config({"hermes_lark_streaming": {}})
+        assert cfg.streaming_config == {
+            "print_frequency_ms": {"default": 70},
+            "print_step": {"default": 1},
+            "print_strategy": "delay",
+        }
+
+    def test_top_level_legacy_keys_are_preserved(self) -> None:
+        cfg = _make_config({
+            "hermes_lark_streaming": {
+                "print_strategy": "fast",
+                "print_frequency_ms": 120,
+                "print_step": 3,
+            }
+        })
+        assert cfg.streaming_config == {
+            "print_frequency_ms": {"default": 120},
+            "print_step": {"default": 3},
+            "print_strategy": "fast",
+        }
+
+    def test_nested_official_streaming_config_accepts_device_maps(self) -> None:
+        cfg = _make_config({
+            "hermes_lark_streaming": {
+                "streaming_config": {
+                    "print_frequency_ms": {"default": 80, "pc": 40},
+                    "print_step": {"default": 2, "ios": 3},
+                    "print_strategy": "fast",
+                }
+            }
+        })
+        assert cfg.streaming_config == {
+            "print_frequency_ms": {"default": 80, "pc": 40},
+            "print_step": {"default": 2, "ios": 3},
+            "print_strategy": "fast",
+        }
+
+    def test_invalid_values_fall_back_to_safe_defaults(self) -> None:
+        cfg = _make_config({
+            "hermes_lark_streaming": {
+                "streaming_config": {
+                    "print_frequency_ms": {"pc": "bad"},
+                    "print_step": 0,
+                    "print_strategy": "invalid",
+                }
+            }
+        })
+        assert cfg.streaming_config == {
+            "print_frequency_ms": {"pc": 70, "default": 70},
+            "print_step": {"default": 1},
+            "print_strategy": "delay",
+        }
+
+
 class TestReloadCached:
     """_reload_cached() TTL 缓存行为测试."""
 

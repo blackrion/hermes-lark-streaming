@@ -297,8 +297,8 @@ class E2ETestRunner:
             return await srv.reply_card_by_id(mid, cid)
         async def _reply_card(mid, card):
             return await srv.reply_card(mid, card)
-        async def _cardkit_stream_element(cid, eid, content, *, sequence=0):
-            return await srv.cardkit_stream_element(cid, eid, content, sequence=sequence)
+        async def _cardkit_stream_element(cid, eid, content, *, sequence=0, uuid=None):
+            return await srv.cardkit_stream_element(cid, eid, content, sequence=sequence, uuid=uuid)
         async def _cardkit_batch_update(cid, actions, *, sequence=0):
             return await srv.cardkit_batch_update(cid, actions, sequence=sequence)
         async def _cardkit_close_streaming(cid, *, sequence=0, summary=""):
