@@ -457,6 +457,7 @@ def build_status_card() -> dict[str, Any]:
             f"`max_tool_steps`: `{cfg.max_tool_steps}`",
             f"`max_reasoning_rounds`: `{cfg.max_reasoning_rounds}`",
             f"`footer_show_label`: `{cfg.footer_show_label}`",
+            f"`footer_show_empty`: `{cfg.footer_show_empty}`",
         ]
         creds_cfg = [
             f"`feishu_credentials`: `{'已配置' if has_creds else '未配置'}`",

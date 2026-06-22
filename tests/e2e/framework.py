@@ -136,6 +136,7 @@ class E2ETestRunner:
         cfg.max_reasoning_rounds = 20
         cfg.footer_fields = [["status", "elapsed", "model", "cost"]]
         cfg.footer_show_label = False
+        cfg.footer_show_empty = False
 
         if self._use_real_feishu:
             await self._setup_real_client(cfg)

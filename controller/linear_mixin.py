@@ -911,6 +911,7 @@ class UnifiedControllerMixin:
         error_message: str = "",
         footer_fields: list[list[str]] | None = None,
         footer_show_label: bool = False,
+        footer_show_empty: bool = False,
     ) -> bool:
         """Preservative seal — update panel + add footer + close streaming.
 
@@ -1100,6 +1101,7 @@ class UnifiedControllerMixin:
                     error_message=error_message,
                     footer_fields=footer_fields,
                     footer_show_label=footer_show_label,
+                    footer_show_empty=footer_show_empty,
                     existing_elements=session.existing_elements,
                 )
             )
@@ -1351,6 +1353,7 @@ class UnifiedControllerMixin:
                                 error_message=error_message,
                                 footer_fields=footer_fields,
                                 footer_show_label=footer_show_label,
+                                footer_show_empty=footer_show_empty,
                                 existing_elements=session.existing_elements,
                             )
                         )
@@ -1625,6 +1628,7 @@ class UnifiedControllerMixin:
                 error_message=error_message,
                 footer_fields=self._cfg.footer_fields,
                 footer_show_label=self._cfg.footer_show_label,
+                footer_show_empty=self._cfg.footer_show_empty,
             )
 
         # ── Summary is already updated in close_streaming ──
@@ -1704,6 +1708,7 @@ class UnifiedControllerMixin:
                     error_message=error_message,
                     footer_fields=self._cfg.footer_fields,
                     footer_show_label=self._cfg.footer_show_label,
+                    footer_show_empty=self._cfg.footer_show_empty,
                     panel_expanded=self._cfg.panel_expanded,
                     header_enabled=self._cfg.header_enabled,
                     panel_events=state.panel_events if state else None,

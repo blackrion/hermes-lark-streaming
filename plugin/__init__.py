@@ -165,7 +165,7 @@ def register(ctx: "PluginContext") -> None:
             "hermes-lark-streaming v%s: config diagnostic — "
             "enabled=%s linear=%s gateway_cards=%s inject_time=%s "
             "panel_expanded=%s streaming_panel_expanded=%s print_strategy=%s "
-            "flush_interval=%sms card_ttl=%ss footer_fields=%s show_label=%s",
+            "flush_interval=%sms card_ttl=%ss footer_fields=%s show_label=%s show_empty=%s",
             __version__,
             _diag_cfg.enabled,
             _diag_cfg.linear,
@@ -178,6 +178,7 @@ def register(ctx: "PluginContext") -> None:
             _diag_cfg.card_duration_sec,
             _diag_cfg.footer_fields,
             _diag_cfg.footer_show_label,
+            _diag_cfg.footer_show_empty,
         )
     except Exception:
         _logger.debug("config diagnostic log failed", exc_info=True)

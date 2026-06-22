@@ -94,6 +94,24 @@ class TestFooterShowLabel:
         assert cfg.footer_show_label is False
 
 
+class TestFooterShowEmpty:
+    def test_true(self) -> None:
+        cfg = _make_config({"hermes_lark_streaming": {"footer": {"show_empty": True}}})
+        assert cfg.footer_show_empty is True
+
+    def test_false(self) -> None:
+        cfg = _make_config({"hermes_lark_streaming": {"footer": {"show_empty": False}}})
+        assert cfg.footer_show_empty is False
+
+    def test_missing_defaults_false(self) -> None:
+        cfg = _make_config({"hermes_lark_streaming": {"footer": {}}})
+        assert cfg.footer_show_empty is False
+
+    def test_footer_not_dict_defaults_false(self) -> None:
+        cfg = _make_config({"hermes_lark_streaming": {"footer": "invalid"}})
+        assert cfg.footer_show_empty is False
+
+
 class TestCardDurationSec:
     def test_custom(self) -> None:
         cfg = _make_config({"hermes_lark_streaming": {"card_ttl_sec": 300}})

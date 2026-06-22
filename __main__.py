@@ -338,6 +338,7 @@ def _cmd_doctor() -> int:
         print(f"      max_reasoning_rounds: {cfg.max_reasoning_rounds}")
         print(f"      footer_fields:      {cfg.footer_fields}")
         print(f"      footer_show_label:  {cfg.footer_show_label}")
+        print(f"      footer_show_empty:  {cfg.footer_show_empty}")
     except Exception as e:
         print(f"[3/6] Configuration:     FAILED — {e}")
         return 1

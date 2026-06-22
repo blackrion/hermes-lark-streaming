@@ -863,6 +863,7 @@ def _build_footer_elements(
     is_aborted: bool = False,
     fields: list[list[str]] | None = None,
     show_label: bool = False,
+    show_empty: bool = False,
 ) -> list[dict]:
     if fields is None:
         fields = [["status", "elapsed", "context", "model"]]
@@ -874,7 +875,14 @@ def _build_footer_elements(
         en_parts: list[str] = []
         zh_parts: list[str] = []
         for field in row:
-            en, zh = _render_footer_field(field, data, is_error, is_aborted, show_label)
+            en, zh = _render_footer_field(
+                field,
+                data,
+                is_error,
+                is_aborted,
+                show_label,
+                show_empty=show_empty,
+            )
             if en:
                 en_parts.append(en)
                 if zh:
@@ -912,6 +920,7 @@ def build_preservative_seal_actions(
     error_message: str = "",
     footer_fields: list[list[str]] | None = None,
     footer_show_label: bool = False,
+    footer_show_empty: bool = False,
     existing_elements: set[str] | None = None,
 ) -> list[dict]:
     """构建保留式封卡的 batch_update actions.
@@ -982,6 +991,7 @@ def build_preservative_seal_actions(
             is_aborted=is_aborted,
             fields=footer_fields,
             show_label=footer_show_label,
+            show_empty=footer_show_empty,
         )
         if footer_elements:
             actions.append({
@@ -1022,7 +1032,42 @@ def _render_footer_field(
     is_error: bool,
     is_aborted: bool,
     show_label: bool,
+    show_empty: bool = False,
 ) -> tuple[str | None, str | None]:
+    def _present(key: str) -> bool:
+        """Treat an existing 0/False value as runtime data; only None/missing is absent."""
+        return key in data and data.get(key) is not None
+
+    def _number(key: str, default: int | float = 0) -> int | float:
+        value = data.get(key, default)
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return value
+        return default
+
+    def _format_cost_value(cost_usd: int | float) -> str:
+        # Format: $0.023 for small values, $1.50 for larger
+        if cost_usd < 0.01:
+            return f"${cost_usd:.4f}"
+        if cost_usd < 1:
+            return f"${cost_usd:.3f}"
+        return f"${cost_usd:.2f}"
+
+    def _empty(
+        en_label: str,
+        zh_label: str,
+        value: str = "n/a",
+        zh_value: str | None = None,
+    ) -> tuple[str | None, str | None]:
+        """Render an empty footer value only when explicitly enabled."""
+        if not show_empty:
+            return None, None
+        zh_value = zh_value if zh_value is not None else value
+        if show_label:
+            return f"{en_label} {value}", f"{zh_label} {zh_value}"
+        return value, zh_value
+
     if name == "status":
         if is_error:
             return _T["status_error"]
@@ -1031,15 +1076,13 @@ def _render_footer_field(
         return _T["status_completed"]
 
     if name == "elapsed":
-        duration = data.get("duration", 0)
-        if isinstance(duration, (int, float)) and duration > 0:
+        duration = _number("duration")
+        if _present("duration") and duration >= 0:
             val = _format_elapsed(duration * 1000)
             if show_label:
                 return _T["elapsed"][0].format(val), _T["elapsed"][1].format(val)
             return val, val
-        if show_label:
-            return "Elapsed n/a", "耗时 n/a"
-        return None, None
+        return _empty("Elapsed", "耗时")
 
     if name == "model":
         v = data.get("model") or None
@@ -1048,97 +1091,95 @@ def _render_footer_field(
         return v, v
 
     if name == "tokens":
-        input_t = data.get("input_tokens", 0) or 0
-        output_t = data.get("output_tokens", 0) or 0
-        reasoning_t = data.get("reasoning_tokens", 0) or 0
-        if input_t or output_t:
+        has_tokens = _present("input_tokens") or _present("output_tokens") or _present("reasoning_tokens")
+        input_t = _number("input_tokens")
+        output_t = _number("output_tokens")
+        reasoning_t = _number("reasoning_tokens")
+        if has_tokens:
             v = f"↑ {_compact(input_t)} ↓ {_compact(output_t)}"
             if reasoning_t:
                 v += f" 💭 {_compact(reasoning_t)}"
             if show_label:
                 return f"Tokens {v}", f"Token {v}"
             return v, v
-        if show_label:
-            return "Tokens n/a", "Token n/a"
-        return None, None
+        return _empty("Tokens", "Token")
 
     if name == "context":
-        used = data.get("context_used", 0) or 0
-        max_c = data.get("context_max", 0) or 0
-        if max_c:
+        has_context = _present("context_used") or _present("context_max")
+        used = _number("context_used")
+        max_c = _number("context_max")
+        if max_c > 0:
             pct = int(used / max_c * 100)
             val = f"{_compact(used)}/{_compact(max_c)} ({pct}%)"
             if show_label:
                 return _T["context"][0].format(val), _T["context"][1].format(val)
             return val, val
-        if show_label:
-            return "Context n/a", "上下文 n/a"
-        return None, None
+        if has_context:
+            val = _compact(used)
+            if show_label:
+                return _T["context"][0].format(val), _T["context"][1].format(val)
+            return val, val
+        return _empty("Context", "上下文")
 
     if name == "api_calls":
-        v = data.get("api_calls", 0) or 0
         en_val, zh_val = _T["api_calls"]
-        if show_label:
-            return f"{en_val} {v}", f"{zh_val} {v}"
-        if v:
-            return str(v), str(v)
-        return None, None
+        if _present("api_calls"):
+            v = str(_number("api_calls"))
+            if show_label:
+                return f"{en_val} {v}", f"{zh_val} {v}"
+            return v, v
+        return _empty(en_val, zh_val, "0")
 
     if name == "history_offset":
-        v = data.get("history_offset", 0) or 0
         en_val, zh_val = _T["history_offset"]
-        if show_label:
-            return f"{en_val} {v}", f"{zh_val} {v}"
-        if v:
-            return str(v), str(v)
-        return None, None
+        if _present("history_offset"):
+            v = str(_number("history_offset"))
+            if show_label:
+                return f"{en_val} {v}", f"{zh_val} {v}"
+            return v, v
+        return _empty(en_val, zh_val, "0")
 
     if name == "compression_exhausted":
-        v = data.get("compression_exhausted", False)
-        if v:
+        if data.get("compression_exhausted"):
             en_val, zh_val = _T["compression_exhausted"]
             return en_val, zh_val
-        if show_label:
-            return "Context OK", "上下文正常"
-        return None, None
+        return _empty("Context", "上下文", "OK", "正常")
 
     if name == "cache":
-        cache_read = data.get("cache_read_tokens", 0) or 0
-        input_total = data.get("input_tokens", 0) or 0
-        if input_total:
-            hit_pct = int(cache_read / input_total * 100)
-            v = f"{_compact(cache_read)}/{_compact(input_total)} ({hit_pct}%)"
+        if _present("cache_read_tokens"):
+            cache_read = _number("cache_read_tokens")
+            input_total = _number("input_tokens")
+            if input_total > 0:
+                hit_pct = int(cache_read / input_total * 100)
+                v = f"{_compact(cache_read)}/{_compact(input_total)} ({hit_pct}%)"
+            else:
+                v = _compact(cache_read)
             if show_label:
                 return _T["cache"][0].format(v), _T["cache"][1].format(v)
             return v, v
-        if show_label:
-            return "Cache n/a", "缓存 n/a"
-        return None, None
+        return _empty("Cache", "缓存")
 
     if name == "cost":
-        cost_usd = data.get("estimated_cost_usd", 0) or 0
         cost_status = data.get("cost_status", "unknown")
+        cost_usd = _number("estimated_cost_usd")
         if cost_status == "included":
             en_val, zh_val = _T["cost_included"]
             if show_label:
                 return f"Cost {en_val}", f"费用 {zh_val}"
             return en_val, zh_val
-        if cost_status in ("actual", "estimated") and cost_usd:
-            # Format: $0.023 for small values, $1.50 for larger
-            if cost_usd < 0.01:
-                val = f"${cost_usd:.4f}"
-            elif cost_usd < 1:
-                val = f"${cost_usd:.3f}"
-            else:
-                val = f"${cost_usd:.2f}"
+        if cost_status in ("actual", "estimated") and _present("estimated_cost_usd"):
+            val = _format_cost_value(cost_usd)
             key = "cost_actual" if cost_status == "actual" else "cost_estimated"
             en_val, zh_val = _T[key]
             if show_label:
                 return f"Cost {en_val.format(val.lstrip('$'))}", f"费用 {zh_val.format(val.lstrip('$'))}"
             return en_val.format(val.lstrip('$')), zh_val.format(val.lstrip('$'))
-        if show_label:
-            return "Cost n/a", "费用 n/a"
-        return None, None
+        if _present("estimated_cost_usd"):
+            val = _format_cost_value(cost_usd)
+            if show_label:
+                return f"Cost {val}", f"费用 {val}"
+            return val, val
+        return _empty("Cost", "费用")
 
     return None, None
 

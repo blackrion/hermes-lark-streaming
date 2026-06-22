@@ -237,6 +237,53 @@ class TestBuildFooterElements:
     def test_no_matching_fields(self) -> None:
         assert _build_footer_elements({}, fields=[["tokens"]]) == []
 
+    def test_show_label_does_not_render_empty_placeholders(self) -> None:
+        result = _build_footer_elements(
+            {},
+            fields=[["tokens", "context", "cache", "cost", "compression_exhausted"]],
+            show_label=True,
+        )
+        assert result == []
+
+    def test_show_empty_renders_optional_placeholders(self) -> None:
+        result = _build_footer_elements(
+            {},
+            fields=[["tokens", "context", "cache", "cost", "compression_exhausted"]],
+            show_label=True,
+            show_empty=True,
+        )
+        assert len(result) >= 2
+        content = result[1]["content"]
+        assert "Tokens n/a" in content
+        assert "Context n/a" in content
+        assert "Cache n/a" in content
+        assert "Cost n/a" in content
+        assert "Context OK" in content
+
+    def test_show_empty_false_preserves_real_runtime_data(self) -> None:
+        result = _build_footer_elements(
+            {
+                "input_tokens": 1000,
+                "output_tokens": 500,
+                "cache_read_tokens": 0,
+                "estimated_cost_usd": 0,
+                "cost_status": "estimated",
+                "api_calls": 0,
+                "history_offset": 0,
+            },
+            fields=[["tokens", "cache", "cost", "api_calls", "history_offset"]],
+            show_label=True,
+            show_empty=False,
+        )
+        assert len(result) >= 2
+        content = result[1]["content"]
+        assert "Tokens" in content
+        assert "Cache" in content
+        assert "Cost" in content
+        assert "API" in content
+        assert "Offset" in content
+        assert "n/a" not in content
+
     def test_compression_exhausted_displayed(self) -> None:
         result = _build_footer_elements(
             {"compression_exhausted": True},
@@ -295,12 +342,13 @@ class TestBuildFooterElements:
         )
         assert result == []
 
-    def test_cost_zero_not_displayed(self) -> None:
+    def test_cost_zero_displayed_when_present(self) -> None:
         result = _build_footer_elements(
             {"estimated_cost_usd": 0, "cost_status": "estimated"},
             fields=[["cost"]],
         )
-        assert result == []
+        assert len(result) >= 2
+        assert "$0.0000" in result[1]["content"]
 
     def test_tokens_with_reasoning_displayed(self) -> None:
         result = _build_footer_elements(
@@ -560,8 +608,8 @@ class TestCacheFooterField:
         assert "50.0K" in en
         assert "200.0K" in en
 
-    def test_cache_zero_read_returns_none(self) -> None:
-        """cache_read_tokens=0 时返回 (None, None)."""
+    def test_cache_zero_read_displayed_when_present(self) -> None:
+        """cache_read_tokens=0 是真实运行时数据，应显示 0 命中率而不是隐藏。"""
         en, zh = _render_footer_field(
             "cache",
             {"cache_read_tokens": 0, "input_tokens": 1000},
@@ -569,11 +617,11 @@ class TestCacheFooterField:
             is_aborted=False,
             show_label=False,
         )
-        assert en is None
-        assert zh is None
+        assert en is not None
+        assert "0/1.0K (0%)" in en
 
-    def test_cache_zero_input_returns_none(self) -> None:
-        """input_tokens=0 时返回 (None, None)."""
+    def test_cache_zero_input_displays_cache_read_value(self) -> None:
+        """input_tokens=0 不能计算命中率，但已有 cache_read_tokens 仍应显示。"""
         en, zh = _render_footer_field(
             "cache",
             {"cache_read_tokens": 500, "input_tokens": 0},
@@ -581,8 +629,8 @@ class TestCacheFooterField:
             is_aborted=False,
             show_label=False,
         )
-        assert en is None
-        assert zh is None
+        assert en == "500"
+        assert zh == "500"
 
     def test_cache_missing_data_returns_none(self) -> None:
         """缺少 cache_read_tokens 或 input_tokens 时返回 (None, None)."""
@@ -598,7 +646,7 @@ class TestCacheFooterField:
             is_aborted=False,
             show_label=False,
         )
-        assert en2 is None
+        assert en2 == "500"
 
         en3, zh3 = _render_footer_field(
             "cache",

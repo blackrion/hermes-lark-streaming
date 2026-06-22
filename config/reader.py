@@ -231,7 +231,18 @@ class Config:
         """Footer 是否显示字段标签."""
         sec = self._plugin_sec()
         footer = sec.get("footer", {})
+        if not isinstance(footer, dict):
+            return False
         return _to_bool(footer.get("show_label", False))
+
+    @property
+    def footer_show_empty(self) -> bool:
+        """Footer 是否显示无运行时数据的占位值（默认不显示）."""
+        sec = self._plugin_sec()
+        footer = sec.get("footer", {})
+        if not isinstance(footer, dict):
+            return False
+        return _to_bool(footer.get("show_empty", False))
 
     @property
     def header_enabled(self) -> bool:

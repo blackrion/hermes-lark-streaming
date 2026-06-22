@@ -272,6 +272,7 @@ def build_unified_complete_card(
     error_message: str = "",
     footer_fields: list[list[str]] | None = None,
     footer_show_label: bool = True,
+    footer_show_empty: bool = False,
     panel_expanded: bool = False,
     header_enabled: bool = False,
     panel_events: list[tuple[str, int]] | None = None,
@@ -316,6 +317,8 @@ def build_unified_complete_card(
         Footer field layout (each inner list is a row of field names).
     footer_show_label : bool
         Whether to show labels alongside footer values.
+    footer_show_empty : bool
+        Whether to show configured footer fields without runtime data as placeholders.
     panel_expanded : bool
         Whether the unified panel starts expanded.
     header_enabled : bool
@@ -372,6 +375,7 @@ def build_unified_complete_card(
             is_aborted,
             fields=footer_fields,
             show_label=footer_show_label,
+            show_empty=footer_show_empty,
         )
     )
 
