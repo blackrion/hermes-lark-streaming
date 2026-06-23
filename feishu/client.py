@@ -33,6 +33,8 @@ from lark_oapi.api.im.v1 import (
     CreateImageRequestBody,
     CreateMessageRequest,
     CreateMessageRequestBody,
+    CreateMessageReactionRequest,
+    CreateMessageReactionRequestBody,
     PatchMessageRequest,
     PatchMessageRequestBody,
     ReplyMessageRequest,
@@ -327,6 +329,65 @@ class FeishuClient:
         if resp.data and resp.data.message_id:
             return str(resp.data.message_id)
         raise FeishuAPIError("reply_text: response missing message_id")
+
+    async def reply_card_in_thread(
+        self,
+        message_id: str,
+        card: dict[str, Any],
+    ) -> str:
+        """在话题（Thread）中回复卡片消息，返回 message_id.
+
+        吸收自 baileyh8/hermes-feishu-streaming-card：
+        当用户在飞书 thread/话题中发消息时，初始卡片应使用
+        reply API 回到同一 thread，保持话题上下文.
+        """
+        request = (
+            ReplyMessageRequest.builder()
+            .message_id(message_id)
+            .request_body(
+                ReplyMessageRequestBody.builder()
+                .msg_type("interactive")
+                .content(self._dumps(card))
+                .build()
+            )
+            .build()
+        )
+        resp = await self._client.im.v1.message.areply(request)
+        self._check(resp, "reply_card_in_thread")
+        if resp.data and resp.data.message_id:
+            return str(resp.data.message_id)
+        raise FeishuAPIError("reply_card_in_thread: response missing message_id")
+
+    async def add_reaction(
+        self,
+        message_id: str,
+        emoji_type: str = "DONE",
+    ) -> None:
+        """给消息添加 emoji 表情回应.
+
+        吸收自 Gawg-AI/hermes-feishu：发卡后自动添加表情回应（如 ✅）.
+
+        Args:
+            message_id: 目标消息 ID.
+            emoji_type: 飞书 emoji 类型标识，常用值：
+                "DONE" (✅), "THUMBSUP" (👍), "HEART" (❤️),
+                "YES" (👌), "100" (💯).
+        """
+        try:
+            request = (
+                CreateMessageReactionRequest.builder()
+                .message_id(message_id)
+                .request_body(
+                    CreateMessageReactionRequestBody.builder()
+                    .reaction_type({"emoji_type": emoji_type})
+                    .build()
+                )
+                .build()
+            )
+            resp = await self._client.im.v1.message_reaction.acreate(request)
+            self._check(resp, "add_reaction")
+        except Exception:
+            _logger.debug("add_reaction failed for %s", message_id, exc_info=True)
 
     async def reply_card_by_id(self, message_id: str, card_id: str) -> str:
         """通过 card_id 回复 CardKit 卡片消息，返回 message_id."""

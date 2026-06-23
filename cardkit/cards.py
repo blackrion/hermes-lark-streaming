@@ -31,6 +31,7 @@ from .md import (
     _split_long_text,
     optimize_markdown_style,
 )
+from .table import render_markdown_with_tables
 
 if TYPE_CHECKING:
     from ..state.linear import ReasoningRound
@@ -341,12 +342,18 @@ def build_unified_complete_card(
 
     # ── Answer text ──
     if answer_text:
-        content = _downgrade_tables(optimize_markdown_style(answer_text))
+        content = optimize_markdown_style(answer_text)
         content, img_elements = _extract_images_from_markdown(content)
         elements.extend(img_elements)
-        for chunk in _split_long_text(content):
-            if chunk.strip():
-                elements.append({"tag": "markdown", "content": chunk})
+        # 原生 Table 组件渲染：Markdown 表格 → 飞书 Table 元素，文本/表格保序
+        table_elements = render_markdown_with_tables(content)
+        for el in table_elements:
+            if el.get("tag") == "markdown":
+                for chunk in _split_long_text(el["content"]):
+                    if chunk.strip():
+                        elements.append({"tag": "markdown", "content": chunk})
+            else:
+                elements.append(el)
     else:
         elements.append({"tag": "markdown", "content": _T["done"][0]})
 

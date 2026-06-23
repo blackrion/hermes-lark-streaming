@@ -13,6 +13,7 @@ from .md import (
     _split_long_text,
     optimize_markdown_style,
 )
+from .table import render_markdown_with_tables
 
 
 
@@ -22,6 +23,7 @@ __all__ = [
     'build_clarify_card',
     'build_clarify_submitted_card',
     'build_clarify_confirmed_card',
+    'build_approval_card',
 ]
 
 def build_cron_card(content: str) -> dict[str, Any]:
@@ -36,9 +38,14 @@ def build_cron_card(content: str) -> dict[str, Any]:
     summary = content[:120].replace("\n", " ").replace("```", "").strip()
     if summary:
         card["config"]["summary"] = {"content": summary}
-    for chunk in _split_long_text(_downgrade_tables(optimize_markdown_style(content), limit=_MAX_CRON_TABLES)):
-        if chunk.strip():
-            card["body"]["elements"].append({"tag": "markdown", "content": chunk})
+    # 原生 Table 组件渲染：Markdown 表格 → 飞书 Table 元素
+    for el in render_markdown_with_tables(optimize_markdown_style(content), max_tables=_MAX_CRON_TABLES):
+        if el.get("tag") == "markdown":
+            for chunk in _split_long_text(el["content"]):
+                if chunk.strip():
+                    card["body"]["elements"].append({"tag": "markdown", "content": chunk})
+        else:
+            card["body"]["elements"].append(el)
     return card
 
 
@@ -207,6 +214,114 @@ def build_clarify_card(
         "body": {"elements": elements},
     }
     return card
+
+
+def build_approval_card(
+    *,
+    tool_name: str = "",
+    description: str = "",
+    approval_id: str = "",
+) -> dict[str, Any]:
+    """构建 Authorization/Approval 请求卡片（吸收自 baileyh8）.
+
+    四按钮设计：
+      ✅ 允许一次  — 仅本次执行
+      🔁 本会话允许 — 当前会话内自动批准
+      ⭐ 始终允许   — 永久加入白名单
+      ❌ 拒绝       — 拒绝执行（danger 样式）
+
+    Args:
+        tool_name: 请求授权的工具名称.
+        description: 授权描述/理由.
+        approval_id: 唯一标识，用于回调路由.
+    """
+    elements: list[dict] = []
+
+    # ── 标题 ──
+    title_text = f"🔐 **{tool_name}**" if tool_name else "🔐 **Authorization Required**"
+    elements.append({
+        "tag": "div",
+        "icon": {
+            "tag": "standard_icon",
+            "token": "shield_color",
+            "size": "20px 20px",
+            "color": "orange",
+        },
+        "text": {
+            "tag": "lark_md",
+            "content": title_text,
+        },
+    })
+
+    if description:
+        elements.append({
+            "tag": "markdown",
+            "content": description,
+        })
+
+    # ── 四按钮布局 ──
+    def _button(text: str, btn_type: str, value: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": text},
+            "type": btn_type,
+            "behaviors": [{"type": "callback", "value": value}],
+        }
+
+    callback_value: dict[str, Any] = {"approval_id": approval_id}
+
+    elements.append({
+        "tag": "column_set",
+        "columns": [
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "elements": [
+                    _button("✅ 允许一次", "primary", {**callback_value, "action": "allow_once"}),
+                ],
+            },
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "elements": [
+                    _button("🔁 本会话", "default", {**callback_value, "action": "allow_session"}),
+                ],
+            },
+        ],
+    })
+
+    elements.append({
+        "tag": "column_set",
+        "columns": [
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "elements": [
+                    _button("⭐ 始终允许", "default", {**callback_value, "action": "allow_always"}),
+                ],
+            },
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "elements": [
+                    _button("❌ 拒绝", "danger", {**callback_value, "action": "deny"}),
+                ],
+            },
+        ],
+    })
+
+    return {
+        "schema": "2.0",
+        "config": {
+            "streaming_mode": False,
+            "locales": _LOCALES,
+        },
+        "body": {"elements": elements},
+    }
 
 
 def build_clarify_submitted_card(

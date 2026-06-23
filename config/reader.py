@@ -243,6 +243,36 @@ class Config:
         return bool(header.get("enabled", False))
 
     @property
+    def reaction_on_complete(self) -> str:
+        """卡片完成后自动添加的 emoji 表情回应类型.
+
+        吸收自 Gawg-AI/hermes-feishu：发卡后自动添加表情回应.
+        设为空字符串则禁用（默认）. 常用值：DONE(✅), THUMBSUP(👍).
+
+        通过 TTL 缓存读取，用户运行时修改配置文件后最多延迟
+        _RELOAD_CACHE_TTL 秒生效.
+        """
+        sec = self._reload_cached().get("hermes_lark_streaming", {})
+        if not isinstance(sec, dict):
+            return ""
+        return str(sec.get("reaction_on_complete", ""))
+
+    @property
+    def enable_native_tables(self) -> bool:
+        """是否启用原生飞书 Table 组件渲染.
+
+        吸收自 Gawg-AI/hermes-feishu：Markdown 表格 → 飞书 ``tag: "table"`` 元素.
+        默认开启。关闭后回退为代码块降级模式.
+
+        通过 TTL 缓存读取，用户运行时修改配置文件后最多延迟
+        _RELOAD_CACHE_TTL 秒生效.
+        """
+        sec = self._reload_cached().get("hermes_lark_streaming", {})
+        if not isinstance(sec, dict):
+            return True
+        return _to_bool(sec.get("enable_native_tables", True), default=True)
+
+    @property
     def gateway_cards(self) -> bool:
         """是否将飞书渠道的网关内部消息（slash命令、错误、通知等）转为卡片.
 

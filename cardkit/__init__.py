@@ -3,3 +3,4 @@
 from .elements import *  # noqa: F401,F403
 from .cards import *  # noqa: F401,F403
 from .special import *  # noqa: F401,F403
+from .table import *  # noqa: F401,F403
