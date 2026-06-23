@@ -1124,9 +1124,9 @@ def _render_footer_field(
         return _empty("Elapsed", "耗时")
 
     if name == "model":
+        # The model value is self-explanatory in the footer; keep the value but
+        # omit the "Model/模型" label even when labels are globally enabled.
         v = data.get("model") or None
-        if v and show_label:
-            return f"Model {v}", f"模型 {v}"
         return v, v
 
     if name == "tokens":
@@ -1158,7 +1158,7 @@ def _render_footer_field(
             if show_label:
                 return _T["context"][0].format(val), _T["context"][1].format(val)
             return val, val
-        return _empty("Context", "上下文")
+        return _empty("Context Window", "上下文窗口")
 
     if name == "api_calls":
         en_val, zh_val = _T["api_calls"]
@@ -1182,7 +1182,7 @@ def _render_footer_field(
         if data.get("compression_exhausted"):
             en_val, zh_val = _T["compression_exhausted"]
             return en_val, zh_val
-        return _empty("Context", "上下文", "OK", "正常")
+        return _empty("Context Window", "上下文窗口", "OK", "正常")
 
     if name == "cache":
         if _present("cache_read_tokens"):

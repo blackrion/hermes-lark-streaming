@@ -196,16 +196,30 @@ class TestBuildFooterElements:
         assert "12.5s" in result[1]["content"]
 
     def test_model_displayed(self) -> None:
-        result = _build_footer_elements({"model": "claude-3"}, fields=[["model"]])
-        assert "claude-3" in result[1]["content"]
+        result = _build_footer_elements(
+            {"model": "claude-3"},
+            fields=[["model"]],
+            show_label=True,
+        )
+        content = result[1]["content"]
+        zh_content = result[1]["i18n_content"]["zh_cn"]
+        assert content == "claude-3"
+        assert zh_content == "claude-3"
+        assert "Model" not in content
+        assert "模型" not in zh_content
 
     def test_context_displayed(self) -> None:
         result = _build_footer_elements(
             {"context_used": 50000, "context_max": 200000},
             fields=[["context"]],
+            show_label=True,
         )
-        assert "50.0K" in result[1]["content"]
-        assert "25%" in result[1]["content"]
+        content = result[1]["content"]
+        zh_content = result[1]["i18n_content"]["zh_cn"]
+        assert "Context Window" in content
+        assert "上下文窗口" in zh_content
+        assert "50.0K" in content
+        assert "25%" in content
 
     def test_tokens_displayed(self) -> None:
         result = _build_footer_elements(
@@ -269,10 +283,10 @@ class TestBuildFooterElements:
         assert len(result) >= 2
         content = result[1]["content"]
         assert "Tokens n/a" in content
-        assert "Context n/a" in content
+        assert "Context Window n/a" in content
         assert "Cache n/a" in content
         assert "Cost n/a" in content
-        assert "Context OK" in content
+        assert "Context Window OK" in content
 
     def test_show_empty_false_preserves_real_runtime_data(self) -> None:
         result = _build_footer_elements(
@@ -304,7 +318,7 @@ class TestBuildFooterElements:
             fields=[["compression_exhausted"]],
         )
         assert len(result) >= 2
-        assert "Context Full" in result[1]["content"]
+        assert "Context Window Full" in result[1]["content"]
 
     def test_api_calls_displayed(self) -> None:
         result = _build_footer_elements(
