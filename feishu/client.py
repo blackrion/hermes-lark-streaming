@@ -59,6 +59,27 @@ class FeishuAPIError(RuntimeError):
         super().__init__(message)
         self.code = code
 
+
+class CardKitApiError(FeishuAPIError):
+    """CardKit API 业务错误 — fail-fast on non-zero response code.
+
+    Ported from openclaw-lark ``CardKitApiError`` (MIT, ByteDance).
+    Carries ``api`` (operation name) and ``context`` (debug info) for
+    structured error logging at the call site.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        code: int = 0,
+        *,
+        api: str = "",
+        context: str = "",
+    ) -> None:
+        super().__init__(message, code)
+        self.api = api
+        self.context = context
+
     def extract_sub_code(self) -> int | None:
         """从 msg 字符串中提取子错误码.
 
@@ -258,20 +279,39 @@ class FeishuClient:
 
     @staticmethod
     def _check(response: Any, operation: str) -> None:
-        """检查 SDK 响应，失败时抛出 FeishuAPIError."""
-        if not response.success():
-            code = response.code or 0
-            msg = response.msg or ""
+        """检查 SDK 响应，失败时抛出 FeishuAPIError.
+
+        Fail-fast: any non-zero ``code`` is treated as a business error.
+        Ported from openclaw-lark ``logCardKitResponse()`` (MIT, ByteDance).
+        """
+        code = getattr(response, "code", None)
+        msg = getattr(response, "msg", None)
+        # Belt-and-suspenders: check both response.success() and code != 0.
+        # The SDK's success() should cover this, but explicit code check
+        # catches edge cases where the SDK wrapper doesn't propagate the
+        # body-level code correctly (as noted in openclaw-lark's cardkit.ts).
+        is_success = response.success() if hasattr(response, "success") else True
+        if code is not None and code != 0:
+            is_success = False
+        if not is_success:
+            code_val = code or 0
+            msg_val = msg or ""
             # v1.1.0: Record API error metrics
             try:
                 from ..aowen import record_api_error
-                record_api_error(code, operation)
+                record_api_error(code_val, operation)
             except Exception:
                 pass
-            raise FeishuAPIError(
-                _sanitize_message(f"{operation}: code={code}, msg={msg}"),
-                code,
+            _logger.warning(
+                "cardkit %s FAILED: code=%s msg=%s",
+                operation, code_val, _sanitize_message(msg_val),
             )
+            raise FeishuAPIError(
+                _sanitize_message(f"{operation}: code={code_val}, msg={msg_val}"),
+                code_val,
+            )
+        # Success — log at debug level for observability
+        _logger.debug("cardkit %s OK: code=%s", operation, code)
 
     @staticmethod
     def _dumps(obj: Any) -> str:

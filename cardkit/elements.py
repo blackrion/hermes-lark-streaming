@@ -1156,11 +1156,15 @@ def _render_footer_field(
         return None, None
 
     if name == "cache":
+        # Ported from openclaw-lark ``formatFooterRuntimeSegments()`` (MIT, ByteDance).
+        # Formula: cache_read / (cache_read + cache_write + input_tokens) * 100
         cache_read = data.get("cache_read_tokens", 0) or 0
+        cache_write = data.get("cache_write_tokens", 0) or 0
         input_total = data.get("input_tokens", 0) or 0
-        if cache_read and input_total:
-            hit_pct = int(cache_read / input_total * 100)
-            v = f"{_compact(cache_read)}/{_compact(input_total)} ({hit_pct}%)"
+        if cache_read or cache_write:
+            total = cache_read + cache_write + input_total
+            hit_pct = round(cache_read / total * 100) if total > 0 else 0
+            v = f"{_compact(cache_read)}/{_compact(cache_write)} ({hit_pct}%)"
             if show_label:
                 return _T["cache"][0].format(v), _T["cache"][1].format(v)
             return v, v
@@ -1190,12 +1194,18 @@ def _render_footer_field(
 
 
 def _compact(n: int) -> str:
-    if n >= 1_000_000:
+    """Compact number format — lowercase suffixes (1.2k, 1.5m).
+
+    Ported from openclaw-lark ``compactNumber()`` (MIT, ByteDance).
+    """
+    abs_n = abs(n)
+    if abs_n >= 1_000_000:
         m = n / 1_000_000
-        return f"{int(m)}M" if m >= 100 else f"{m:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}K"
-    return str(n)
+        return f"{round(m)}m" if abs(m) >= 100 else f"{m:.1f}m"
+    if abs_n >= 1_000:
+        k = n / 1_000
+        return f"{round(k)}k" if abs(k) >= 100 else f"{k:.1f}k"
+    return str(round(n))
 
 
 def _format_elapsed(ms: float) -> str:

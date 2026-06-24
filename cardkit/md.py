@@ -66,16 +66,20 @@ def _strip_invalid_image_keys(text: str) -> str:
 def optimize_markdown_style(text: str) -> str:
     """优化流式 Markdown 以适配飞书 CardKit 渲染.
 
+    Ported from openclaw-lark ``optimizeMarkdownStyle()`` (MIT, ByteDance).
+
     1. 提取代码块用占位符保护
     2. 标题降级: H1 -> H4, H2-H6 -> H5
-    3. 还原代码块
-    4. 压缩多余空行
-    5. 剥离无效图片 key（非 img_xxx 格式）
+    3. 连续标题间增加段落间距 (``<br>``)
+    4. 表格前后增加段落间距 (``<br>``)
+    5. 还原代码块并在前后追加 ``<br>``
+    6. 压缩多余空行
+    7. 剥离无效图片 key（非 img_xxx 格式）
     """
     # Early return: short texts without markdown structure don't need
     # complex regex processing.  Skip only when no headings, code blocks,
-    # images, or excessive blank lines are present.
-    if len(text) < 100 and not re.search(r'^#{1,6} |\n#{1,6} |```|!\[|\n{3,}', text):
+    # images, tables, or excessive blank lines are present.
+    if len(text) < 100 and not re.search(r'^#{1,6} |\n#{1,6} |```|!\[|\n{3,}|\|.*\|', text):
         return text
     try:
         # 1. 提取代码块
@@ -92,18 +96,41 @@ def optimize_markdown_style(text: str) -> str:
         r = re.sub(r"(^|\n)(`{3,})([^\n]*)\n[\s\S]*?\n\2(?=\n|$)", _extract, text)
 
         # 2. 标题降级（仅当存在 H1-H3 时）
+        # 顺序不能颠倒：若先 H1→H4，H4（####）会被后面的 #{2,6} 再次匹配成 H5
         if re.search(r"^#{1,3} ", text, re.MULTILINE):
             r = re.sub(r"^#{2,6} (.+)$", r"##### \1", r, flags=re.MULTILINE)
             r = re.sub(r"^# (.+)$", r"#### \1", r, flags=re.MULTILINE)
 
-        # 3. 还原代码块
-        for i, block in enumerate(code_blocks):
-            r = r.replace(f"{mark}{i}___", block)
+        # 3. 连续标题间增加段落间距
+        r = re.sub(r"^(#{4,5} .+)\n{1,2}(#{4,5} )", r"\1\n<br>\n\2", r, flags=re.MULTILINE)
 
-        # 4. 压缩多余空行
+        # 4. 表格前后增加段落间距
+        # 4a. 非表格行直接跟表格行时，先补一个空行
+        r = re.sub(r"^([^|\n].*)\n(\|.+\|)", r"\1\n\n\2", r, flags=re.MULTILINE)
+        # 4b. 表格前：在空行之前插入 <br>
+        r = re.sub(r"\n\n((?:\|.+\|[^\S\n]*\n?)+)", r"\n\n<br>\n\n\1", r)
+        # 4c. 表格后：在表格块末尾追加 <br>（跳过后接分隔线/标题/加粗/文末的情况）
+        def _table_after(m: re.Match) -> str:
+            after = r[m.end():].lstrip("\n")
+            if not after or re.match(r"^(---|#{4,5} |\*\*)", after):
+                return m.group(0)
+            return m.group(0) + "\n<br>\n"
+        r = re.sub(r"(?:^\|.+\|[^\S\n]*\n?)+", _table_after, r, flags=re.MULTILINE)
+        # 4d. 表格前是普通文本（非标题、非加粗行）时，只需 <br>，去掉多余空行
+        r = re.sub(r"^((?!#{4,5} )(?!\*\*).+)\n\n(<br>)\n\n(\|)", r"\1\n\2\n\3", r, flags=re.MULTILINE)
+        # 4d2. 表格前是加粗行时，<br> 紧贴加粗行，空行保留在后面
+        r = re.sub(r"^(\*\*.+)\n\n(<br>)\n\n(\|)", r"\1\n\2\n\n\3", r, flags=re.MULTILINE)
+        # 4e. 表格后是普通文本（非标题、非加粗行）时，只需 <br>，去掉多余空行
+        r = re.sub(r"(\|[^\n]*\n)\n(<br>\n)((?!#{4,5} )(?!\*\*))", r"\1\2\3", r)
+
+        # 5. 还原代码块，并在前后追加 <br>
+        for i, block in enumerate(code_blocks):
+            r = r.replace(f"{mark}{i}___", f"\n<br>\n{block}\n<br>\n")
+
+        # 6. 压缩多余空行（3 个以上连续换行 → 2 个）
         r = re.sub(r"\n{3,}", "\n\n", r)
 
-        # 5. 剥离无效图片 key
+        # 7. 剥离无效图片 key
         r = _strip_invalid_image_keys(r)
 
         return r

@@ -204,7 +204,7 @@ class TestBuildFooterElements:
             {"context_used": 50000, "context_max": 200000},
             fields=[["context"]],
         )
-        assert "50.0K" in result[1]["content"]
+        assert "50.0k" in result[1]["content"]
         assert "25%" in result[1]["content"]
 
     def test_tokens_displayed(self) -> None:
@@ -359,16 +359,16 @@ class TestCompact:
         assert _compact(42) == "42"
 
     def test_thousands(self) -> None:
-        assert _compact(1500) == "1.5K"
+        assert _compact(1500) == "1.5k"
 
     def test_millions(self) -> None:
-        assert _compact(2_500_000) == "2.5M"
+        assert _compact(2_500_000) == "2.5m"
 
     def test_exact_thousand(self) -> None:
-        assert _compact(1000) == "1.0K"
+        assert _compact(1000) == "1.0k"
 
     def test_large_millions(self) -> None:
-        assert _compact(250_000_000) == "250M"
+        assert _compact(250_000_000) == "250m"
 
 
 class TestFormatElapsed:
@@ -532,36 +532,44 @@ class TestCacheFooterField:
     """_render_footer_field("cache", ...) 缓存命中率字段渲染测试."""
 
     def test_cache_with_both_tokens(self) -> None:
-        """cache_read_tokens + input_tokens 均存在时渲染缓存格式."""
+        """cache_read_tokens + input_tokens 均存在时渲染缓存格式.
+
+        New formula (ported from openclaw-lark): cache_read / (cache_read + cache_write + input) * 100
+        Display format: {cache_read}/{cache_write} ({hit_pct}%)
+        """
         en, zh = _render_footer_field(
             "cache",
-            {"cache_read_tokens": 136300, "input_tokens": 137400},
+            {"cache_read_tokens": 136300, "cache_write_tokens": 50000, "input_tokens": 137400},
             is_error=False,
             is_aborted=False,
             show_label=False,
         )
         assert en is not None
         assert zh is not None
-        assert "136.3K" in en
-        assert "137.4K" in en
-        assert "99%" in en
+        # _compact(136300): k=136.3, abs(k)>=100 → round(136.3)=136 → "136k"
+        assert "136k" in en
+        # _compact(50000): k=50.0, abs(k)<100 → "50.0k"
+        assert "50.0k" in en  # cache_write
+        # hit = round(136300 / (136300+50000+137400) * 100) = round(42.2) = 42
+        assert "42%" in en
 
     def test_cache_hit_percentage_calculation(self) -> None:
-        """命中率百分比 = cache_read / input_tokens * 100."""
+        """命中率 = cache_read / (cache_read + cache_write + input) * 100."""
         en, zh = _render_footer_field(
             "cache",
-            {"cache_read_tokens": 50000, "input_tokens": 200000},
+            {"cache_read_tokens": 50000, "cache_write_tokens": 0, "input_tokens": 200000},
             is_error=False,
             is_aborted=False,
             show_label=False,
         )
         assert en is not None
-        assert "25%" in en
-        assert "50.0K" in en
-        assert "200.0K" in en
+        # hit = round(50000 / (50000+0+200000) * 100) = round(20) = 20
+        assert "20%" in en
+        assert "50.0k" in en  # cache_read (lowercase)
+        assert "0" in en  # cache_write=0 compacted
 
     def test_cache_zero_read_returns_none(self) -> None:
-        """cache_read_tokens=0 时返回 (None, None)."""
+        """cache_read_tokens=0 且 cache_write_tokens=0 时返回 (None, None)."""
         en, zh = _render_footer_field(
             "cache",
             {"cache_read_tokens": 0, "input_tokens": 1000},
@@ -572,8 +580,8 @@ class TestCacheFooterField:
         assert en is None
         assert zh is None
 
-    def test_cache_zero_input_returns_none(self) -> None:
-        """input_tokens=0 时返回 (None, None)."""
+    def test_cache_zero_input_still_renders(self) -> None:
+        """input_tokens=0 but cache_read present → still renders (new behavior)."""
         en, zh = _render_footer_field(
             "cache",
             {"cache_read_tokens": 500, "input_tokens": 0},
@@ -581,16 +589,17 @@ class TestCacheFooterField:
             is_aborted=False,
             show_label=False,
         )
-        assert en is None
-        assert zh is None
+        assert en is not None
+        assert zh is not None
 
     def test_cache_missing_data_returns_none(self) -> None:
-        """缺少 cache_read_tokens 或 input_tokens 时返回 (None, None)."""
+        """缺少 cache_read_tokens 和 cache_write_tokens 时返回 (None, None)."""
         en1, zh1 = _render_footer_field(
             "cache", {}, is_error=False, is_aborted=False, show_label=False,
         )
         assert en1 is None
 
+        # cache_read present, cache_write missing → renders
         en2, zh2 = _render_footer_field(
             "cache",
             {"cache_read_tokens": 500},
@@ -598,8 +607,9 @@ class TestCacheFooterField:
             is_aborted=False,
             show_label=False,
         )
-        assert en2 is None
+        assert en2 is not None
 
+        # only input_tokens, no cache data → None
         en3, zh3 = _render_footer_field(
             "cache",
             {"input_tokens": 1000},
@@ -620,7 +630,8 @@ class TestCacheFooterField:
         )
         assert en is not None
         assert en.startswith("Cache ")
-        assert "75%" in en
+        # hit = round(1500 / (1500+0+2000) * 100) = round(42.86) = 43
+        assert "43%" in en
 
     def test_cache_show_label_true_chinese(self) -> None:
         """show_label=True 时中文前缀为 '缓存 ...'."""
@@ -633,7 +644,7 @@ class TestCacheFooterField:
         )
         assert zh is not None
         assert zh.startswith("缓存 ")
-        assert "75%" in zh
+        assert "43%" in zh
 
     def test_cache_show_label_false_no_prefix(self) -> None:
         """show_label=False 时无标签前缀，直接数字开头."""
@@ -646,7 +657,8 @@ class TestCacheFooterField:
         )
         assert en is not None
         assert not en.startswith("Cache")
-        assert "75%" in en
+        # hit = round(1500 / (1500+0+2000) * 100) = round(42.86) = 43
+        assert "43%" in en
 
     def test_cache_in_build_footer_elements(self) -> None:
         """cache 字段在 _build_footer_elements 中正常渲染."""
@@ -655,13 +667,14 @@ class TestCacheFooterField:
             fields=[["cache"]],
         )
         assert len(result) >= 2
-        assert "99%" in result[1]["content"]
+        # hit = round(136300 / (136300+0+137400) * 100) = round(49.8) = 50
+        assert "50%" in result[1]["content"]
 
     def test_cache_100_percent(self) -> None:
         """全部命中时显示 100%."""
         en, zh = _render_footer_field(
             "cache",
-            {"cache_read_tokens": 1000, "input_tokens": 1000},
+            {"cache_read_tokens": 1000, "cache_write_tokens": 0, "input_tokens": 0},
             is_error=False,
             is_aborted=False,
             show_label=False,

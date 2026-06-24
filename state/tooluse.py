@@ -63,10 +63,18 @@ _AUTH_HEADER_RE = re.compile(
 _SECRET_FLAG_RE = re.compile(
     r'((?:^|[\s"\'`])(--?[A-Za-z0-9][A-Za-z0-9-]*)(=|\s+)("(?:[^"]*)"|\'(?:[^\']*)\'|[^\s"\'`]+))'
 )
+# -H / --header flag with sensitive header name (e.g. -H "Authorization: Bearer xxx")
+_HEADER_FLAG_RE = re.compile(
+    r'(-H\s+|--header\s+)(["\'])(.*?)(["\'])',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def redact_inline_secrets(value: str) -> str:
-    """脱敏 key=secret、Authorization header、--flag secret 模式."""
+    """脱敏 key=secret、Authorization header、--flag secret、-H header 模式.
+
+    Ported and enhanced from openclaw-lark ``redactInlineSecrets()`` (MIT, ByteDance).
+    """
 
     def _redact_assign(m: re.Match) -> str:
         key = str(m.group(2))
@@ -80,35 +88,53 @@ def redact_inline_secrets(value: str) -> str:
             return f"{m.group(1)}{m.group(2)}{m.group(3)}[redacted]"
         return str(m.group(0))
 
-    return _SECRET_FLAG_RE.sub(
-        _redact_flag,
-        _AUTH_HEADER_RE.sub(r"\1[redacted]", _INLINE_ASSIGNMENT_RE.sub(_redact_assign, value)),
+    def _redact_header_flag(m: re.Match) -> str:
+        flag_prefix, open_q, content, close_q = m.groups()
+        colon_idx = content.find(":")
+        if colon_idx > 0:
+            header_name = content[:colon_idx].strip()
+            if _SENSITIVE_NAME_RE.search(header_name):
+                redacted = content[:colon_idx + 1] + " [redacted]"
+                return f"{flag_prefix}{open_q}{redacted}{close_q}"
+        return str(m.group(0))
+
+    return _HEADER_FLAG_RE.sub(
+        _redact_header_flag,
+        _SECRET_FLAG_RE.sub(
+            _redact_flag,
+            _AUTH_HEADER_RE.sub(r"\1[redacted]", _INLINE_ASSIGNMENT_RE.sub(_redact_assign, value)),
+        ),
     )
 
 
 def _sanitize_detail(text: str, sanitizer: str | None) -> str:
-    """根据 sanitizer 类型清洗 detail 文本."""
+    """根据 sanitizer 类型清洗 detail 文本.
+
+    Ported from openclaw-lark ``sanitizeToolDetail()`` (MIT, ByteDance).
+    """
     if not text or not sanitizer:
         return text
     cleaned = re.sub(r"<[^>]+>", "", text).strip()
     if not cleaned:
         return text
     if sanitizer == "command":
-        cleaned = redact_inline_secrets(cleaned)
-        return _redact_paths(cleaned)
+        return _sanitize_command_like(cleaned)
     if sanitizer == "path":
-        return _basename_only(re.sub(r"^(?:from|file|path)\s+", "", cleaned, flags=re.IGNORECASE).strip())
+        return _sanitize_path_like(cleaned)
     if sanitizer == "search":
-        return cleaned.strip("'\"")
+        return _strip_quotes(cleaned)
     if sanitizer == "url":
-        if cleaned.lower().startswith("from "):
-            return cleaned.strip("'\"").replace("from ", "", 1)
-        return cleaned.strip("'\"")
+        result = _strip_quotes(cleaned)
+        return re.sub(r"^from\s+", "", result, flags=re.IGNORECASE)
+    if sanitizer == "skill":
+        result = re.sub(r"^skill\s+", "", cleaned, flags=re.IGNORECASE)
+        result = re.sub(r"[-_]+", " ", result).strip()
+        return result or "skill"
     return cleaned
 
 
 def _redact_paths(text: str) -> str:
-    """命令中路径只保留 basename."""
+    """命令中路径只保留 basename（向后兼容保留）."""
     return re.sub(
         r'(^|[\s=\'"()])([~./][^\s\'"()]+)',
         lambda m: f"{m.group(1)}{os.path.basename(m.group(2))}",
@@ -120,6 +146,112 @@ def _basename_only(text: str) -> str:
     if not text:
         return text
     return os.path.basename(text.replace("\\", "/").rstrip("/"))
+
+
+# ---------------------------------------------------------------------------
+# Ported from openclaw-lark (MIT, ByteDance)
+# ---------------------------------------------------------------------------
+
+def _strip_quotes(value: str) -> str:
+    """Strip leading/trailing quotes and backticks."""
+    return re.sub(r"^[`'\"]+|[`'\"]+$", "", value).strip()
+
+
+def _sanitize_url_for_display(url: str) -> str:
+    """Strip credentials and sensitive query params from URL."""
+    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+    try:
+        parsed = urlparse(url)
+        parsed = parsed._replace(username="", password="")
+        if parsed.query:
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            for key in list(params):
+                if _SENSITIVE_NAME_RE.search(key):
+                    params[key] = ["[redacted]"]
+            parsed = parsed._replace(query=urlencode(params, doseq=True))
+        return urlunparse(parsed)
+    except Exception:
+        return url
+
+
+def _looks_like_path(value: str) -> bool:
+    return (
+        value.startswith("~/")
+        or value.startswith("./")
+        or value.startswith("../")
+        or value.startswith("/")
+        or "/" in value
+    )
+
+
+def _basename_from_path(value: str) -> str:
+    cleaned = value.replace("\\", "/").rstrip("/")
+    segments = [s for s in cleaned.split("/") if s]
+    return segments[-1] if segments else value
+
+
+def _redact_standalone_path(value: str) -> str:
+    """Redact a standalone path token to basename, preserving URLs."""
+    if re.match(r"^https?://", value, re.IGNORECASE):
+        return _sanitize_url_for_display(value)
+    if not _looks_like_path(value):
+        return value
+    return _basename_from_path(value)
+
+
+def _redact_command_paths(command: str) -> str:
+    """Redact paths in command tokens, preserving structure."""
+    def _redact_token(token: str) -> str:
+        if not token or token.isspace():
+            return token
+        match = re.match(r'^([("\'`]*)(.*?)([)"\'`,;:]*)$', token)
+        if not match:
+            return token
+        prefix, core, suffix = match.groups()
+        eq_idx = core.find("=")
+        if eq_idx > 0:
+            left = core[:eq_idx + 1]
+            right = core[eq_idx + 1:]
+            return f"{prefix}{left}{_redact_standalone_path(right)}{suffix}"
+        return f"{prefix}{_redact_standalone_path(core)}{suffix}"
+
+    return "".join(_redact_token(t) for t in re.split(r"(\s+)", command))
+
+
+def _sanitize_command_like(value: str, *, show_full_paths: bool = False) -> str:
+    """Strip command prefixes, redact secrets, and redact paths.
+
+    Ported from openclaw-lark ``sanitizeCommandLike()`` (MIT, ByteDance).
+    """
+    cleaned = _strip_quotes(value)
+    cleaned = re.sub(r"^(?:command|script|description)\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^.*?\s+->\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return "command"
+    redacted = redact_inline_secrets(cleaned)
+    if show_full_paths:
+        return redacted
+    return _redact_command_paths(redacted)
+
+
+def _sanitize_path_like(value: str, *, show_full_paths: bool = False) -> str:
+    """Strip path prefixes, detect skill paths, return basename.
+
+    Ported from openclaw-lark ``sanitizePathLike()`` (MIT, ByteDance).
+    """
+    cleaned = re.sub(r"<[^>]+>", "", value).strip()
+    cleaned = re.sub(r"^(?:from|file|path)\s+", "", cleaned, flags=re.IGNORECASE).strip()
+    if show_full_paths:
+        return cleaned
+    # Check for skill path: skills/skill-name/
+    skill_match = re.search(r"(?:^|/)skills/([^/]+)/", cleaned, re.IGNORECASE)
+    if skill_match:
+        skill_name = skill_match.group(1).replace("-", " ").replace("_", " ").strip()
+        return skill_name or cleaned
+    # Return basename only
+    segments = [s for s in re.split(r"[\\/]", cleaned) if s]
+    return segments[-1] if segments else cleaned
 
 
 _TOOL_DESCRIPTORS: list[dict[str, Any]] = [
