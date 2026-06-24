@@ -211,22 +211,6 @@ class Config:
         return fields
 
     @property
-    def inject_time(self) -> bool:
-        """是否在用户消息前注入当前时间，让模型无需调用 date 工具即可感知时间.
-
-        默认关闭。开启后，每条用户消息前会添加 ``<time>HH:MM:SS</time>`` 前缀，
-        前缀同时写入 DB（保证 prefix cache 一致性）。
-        使用 XML 标签格式而非方括号格式，避免 LLM 忽略或模仿时间前缀。
-
-        通过 TTL 缓存读取，用户运行时修改配置文件后最多延迟
-        _RELOAD_CACHE_TTL 秒生效，避免高频访问时反复读磁盘。
-        """
-        sec = self._reload_cached().get("hermes_lark_streaming")
-        if not isinstance(sec, dict):
-            return False
-        return _to_bool(sec.get("inject_time", False))
-
-    @property
     def footer_show_label(self) -> bool:
         """Footer 是否显示字段标签."""
         sec = self._plugin_sec()
@@ -366,7 +350,7 @@ class Config:
         """带 TTL 缓存的磁盘重读，供运行时可变的配置项使用.
 
         在 _RELOAD_CACHE_TTL 秒内复用上次读取结果，避免高频属性访问
-        （如流式输出期间反复检查 inject_time / show_reasoning）反复读磁盘。
+        （如流式输出期间反复检查 show_reasoning）反复读磁盘。
         配置变更最多延迟 _RELOAD_CACHE_TTL 秒生效。
         """
         now = time.monotonic()

@@ -128,7 +128,6 @@ hermes_lark_streaming:
   card_ttl_sec: 600 # Card alive detection timeout (seconds)
   max_tool_steps: 20 # Max tool steps shown in panel (default 20, range 1–100)
   max_reasoning_rounds: 20 # Max reasoning rounds shown in panel (default 20, range 1–100)
-  inject_time: false # Time awareness mode (see below)
 
   footer:
     show_label: false # Show field labels
@@ -148,12 +147,6 @@ hermes_lark_streaming:
       #   history_offset — Conversation history offset; larger = longer history, sudden decrease = context compression
       # Each inner list is one row in the footer; fields only shown when they have values
 ```
-
-### Time Awareness Mode (`inject_time`)
-
-When `inject_time: true`, the plugin prepends `<time>HH:MM:SS</time>` to each user message so the AI can perceive the current time without calling `date`. XML tags are used because LLMs understand them as metadata and won't mimic them in output. Prefix-cache safe (~6 tokens/message). See [SKILL.md](docs/SKILL.md) for full details.
-
-> **Note**: Hermes v0.17.0+ provides a built-in `gateway.message_timestamps.enabled` feature that injects human-readable timestamps (`[Tue 2026-04-28 13:40:53 CEST]`) into user messages. **If you enable Hermes's `message_timestamps`, disable the plugin's `inject_time`** to avoid duplicate timestamp prefixes. The official `message_timestamps` is recommended over `inject_time`.
 
 ### Reasoning Panel Display
 

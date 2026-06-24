@@ -223,34 +223,6 @@ class TestPlatformCfg:
             assert cfg._platform_cfg() == {}
 
 
-class TestInjectTime:
-    def _make_inject_time_config(self, raw: dict[str, Any]) -> Config:
-        """Create a Config with _reload_cached mocked to return given raw dict."""
-        cfg = Config()
-        cfg._reload_cached = lambda: raw  # type: ignore[assignment]
-        return cfg
-
-    def test_inject_time_true(self) -> None:
-        cfg = self._make_inject_time_config({"hermes_lark_streaming": {"inject_time": True}})
-        assert cfg.inject_time is True
-
-    def test_inject_time_false(self) -> None:
-        cfg = self._make_inject_time_config({"hermes_lark_streaming": {"inject_time": False}})
-        assert cfg.inject_time is False
-
-    def test_inject_time_missing_defaults_false(self) -> None:
-        cfg = self._make_inject_time_config({"hermes_lark_streaming": {}})
-        assert cfg.inject_time is False
-
-    def test_inject_time_no_hermes_lark_streaming_section(self) -> None:
-        cfg = self._make_inject_time_config({})
-        assert cfg.inject_time is False
-
-    def test_inject_time_hermes_lark_streaming_not_dict(self) -> None:
-        cfg = self._make_inject_time_config({"hermes_lark_streaming": "invalid"})
-        assert cfg.inject_time is False
-
-
 class TestLinear:
     def test_linear_true(self) -> None:
         cfg = _make_config({"hermes_lark_streaming": {"linear": True}})
@@ -431,31 +403,6 @@ class TestReloadCached:
         cfg._reload = counting_reload  # type: ignore[assignment]
 
         _ = cfg.show_reasoning
-
-        assert reload_cached_calls == 1
-        assert reload_calls == 0  # _reload should NOT be called
-
-    def test_inject_time_uses_reload_cached(self) -> None:
-        """inject_time 属性使用 _reload_cached 而非 _reload."""
-        cfg = Config()
-        reload_cached_calls = 0
-        reload_calls = 0
-        raw = {"hermes_lark_streaming": {"inject_time": True}}
-
-        def counting_reload_cached() -> dict[str, Any]:
-            nonlocal reload_cached_calls
-            reload_cached_calls += 1
-            return raw
-
-        def counting_reload() -> dict[str, Any]:
-            nonlocal reload_calls
-            reload_calls += 1
-            return raw
-
-        cfg._reload_cached = counting_reload_cached  # type: ignore[assignment]
-        cfg._reload = counting_reload  # type: ignore[assignment]
-
-        _ = cfg.inject_time
 
         assert reload_cached_calls == 1
         assert reload_calls == 0  # _reload should NOT be called

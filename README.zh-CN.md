@@ -128,7 +128,6 @@ hermes_lark_streaming:
   card_ttl_sec: 600 # 卡片存活检测超时（秒）
   max_tool_steps: 20 # 统一面板最多显示的工具步骤数（默认20，范围1~100）
   max_reasoning_rounds: 20 # 统一面板最多显示的推理轮次数（默认20，范围1~100）
-  inject_time: false # 时间感知模式（详见下方说明）
 
   footer:
     show_label: false # 是否显示字段标签
@@ -148,12 +147,6 @@ hermes_lark_streaming:
       #   history_offset — 对话历史偏移量；值越大对话越长，值突然变小说明发生了上下文压缩
       # 每个内层列表为页脚的一行，字段仅在有值时显示
 ```
-
-### 时间感知模式（`inject_time`）
-
-开启 `inject_time: true` 后，插件在每条用户消息前添加 `<time>HH:MM:SS</time>` 时间前缀，让 AI 无需调用 `date` 工具即可感知当前时间。使用 XML 标签是因为 LLM 普遍将其理解为结构化元数据，不会在回复中模仿。Prefix Cache 安全（每条约 6 tokens）。详见 [SKILL.md](docs/SKILL.md)。
-
-> **注意**：Hermes v0.17.0+ 内置了 `gateway.message_timestamps.enabled` 功能，会在用户消息前注入人类可读的时间戳（`[Tue 2026-04-28 13:40:53 CEST]`）。**如果开启了 Hermes 的 `message_timestamps`，请关闭插件的 `inject_time`**，避免出现重复的时间戳前缀。建议优先使用官方的 `message_timestamps`，而非插件的 `inject_time`。
 
 ### 推理面板显示
 

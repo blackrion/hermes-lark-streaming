@@ -49,7 +49,6 @@ _DEFAULT_STREAMING_CONFIG: dict[str, Any] = {
     "card_ttl_sec": 600,
     "max_tool_steps": 20,
     "max_reasoning_rounds": 20,
-    "inject_time": False,
     "footer": {
         "fields": [
             ["status", "elapsed", "model", "cost", "compression_exhausted"],
@@ -204,14 +203,13 @@ def register(ctx: "PluginContext") -> None:
         _diag_cfg = Config()
         _logger.info(
             "hermes-lark-streaming v%s: config diagnostic — "
-            "enabled=%s linear=%s gateway_cards=%s inject_time=%s "
+            "enabled=%s linear=%s gateway_cards=%s "
             "panel_expanded=%s streaming_panel_expanded=%s print_strategy=%s "
             "flush_interval=%sms card_ttl=%ss footer_fields=%s show_label=%s",
             __version__,
             _diag_cfg.enabled,
             _diag_cfg.linear,
             _diag_cfg.gateway_cards,
-            _diag_cfg.inject_time,
             _diag_cfg.panel_expanded,
             _diag_cfg.streaming_panel_expanded,
             _diag_cfg.print_strategy,

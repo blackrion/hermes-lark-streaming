@@ -123,7 +123,6 @@ class E2ETestRunner:
         cfg.enabled = True
         cfg.linear = True
         cfg.gateway_cards = True
-        cfg.inject_time = False
         cfg.flush_interval_ms = 50  # Fast for tests
         cfg.flush_interval_sec = 0.05
         cfg.card_duration_sec = 600

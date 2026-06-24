@@ -23,7 +23,7 @@
                ▼
         _run_agent ── [Hook 2: on_message_completed]
                ▼
-        AIAgent.run_conversation ── [inject_time 前缀注入]
+        AIAgent.run_conversation ── [callback 拦截]
             ├─ stream_delta_callback ── [Hook 4: on_answer_delta]
             ├─ reasoning_callback ──── [Hook 6: on_reasoning_delta]
             ├─ tool_progress_callback [Hook 3: on_tool_updated]
@@ -46,7 +46,7 @@ Background: _run_background_task ── [Hook 1/2]
 | `├ __init__.py`       | 入口 + 共享状态 + 编排    | `apply_patches()` + 延迟补丁 + `_patch_status` 报告                                               |
 | `├ hermes_adapter.py` | Hermes 适配层 (v1.1.0)    | `HermesCompat` 类隔离所有 Hermes 内部模块访问 + 版本探测                                          |
 | `├ hooks.py`          | Hook 函数层               | `_safe_hook` 统一 enabled 检查 + 异常捕获                                                         |
-| `├ gateway.py`        | GatewayRunner 包装        | 6 个 wrapper + 时间前缀注入 + cron/background                                                     |
+| `├ gateway.py`        | GatewayRunner 包装        | 6 个 wrapper + cron/background                                                                    |
 | `├ callbacks.py`      | 回调包装                  | 5 个内部 wrapper + `already_streamed` 透传 + 长度去重                                             |
 | `└ adapter.py`        | FeishuAdapter 包装        | send/edit/reaction/clarify 包装 + gateway card 注册                                               |
 | **cardkit/**          | **卡片构建子包**          |                                                                                                   |
@@ -96,7 +96,6 @@ Background: _run_background_task ── [Hook 1/2]
 
 **4.4 异步 + 双重补丁**: Cron 全链路异步化(禁止 `run_coroutine_threadsafe().result()`)；`run_conversation` 模块级+实例级双重补丁；Cron/后台临时替换 `adapter.send`（卡片替换纯文本）。
 
-**4.5 时间感知格式**: XML 标签 `<time>HH:MM:SS</time>`，LLM 不模仿，无日期/时区后缀。
 
 **4.6 统一面板架构 (v1.0.2)**: 所有推理轮次和工具步骤放在 1 个可折叠面板中（图标 `robot_filled`），回答使用 1 个流式元素。无论对话多长，卡片始终只有 3–4 个元素。面板标题动态显示 `agent loop · N rounds · M tools · Xs`。`display.show_reasoning` 控制推理内容是否出现在面板中。`panel_events` 时间线记录事件发生顺序，面板内容按时间线交错渲染。
 
@@ -250,7 +249,6 @@ hermes_lark_streaming:
   print_strategy: delay # "fast" 或 "delay"
   flush_interval_ms: 100 # 70~2000ms（默认 100）
   card_ttl_sec: 600
-  inject_time: false
   max_tool_steps: 20 # 范围 1~100
   max_reasoning_rounds: 20 # 范围 1~100
   footer:
