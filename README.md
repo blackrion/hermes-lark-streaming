@@ -4,39 +4,67 @@
   <img src="https://img.shields.io/badge/Project-Vibe%20Coding-ff69b4" alt="Vibe Coding">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-4caf50.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/version-1.1.3-ff9800.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.2.0-ff9800.svg" alt="Version">
 </p>
 
 <p align="center">
 <a href="https://github.com/blackrion"><img src="https://img.shields.io/badge/GitHub-blackrion-181717?logo=github&logoColor=white" alt="GitHub"></a>
-<a href="https://applink.feishu.cn/client/message/link/open?token=AmoQJk5dwczIahKlW78ADLU%3D"><img src="https://img.shields.io/badge/Upstream_Group-China-red" alt="Upstream Group"></a>
-<a href="https://larkcommunity.feishu.cn/wiki/DKkpwgMcJiglIhk88N4cqJEan5f?from=from_copylink"><img src="https://img.shields.io/badge/docs-Knowledge_Base-3370FF?logo=feishu&logoColor=white" alt="Knowledge Base"></a>
 </p>
 
 <p align="center">
 English | <a href="README.zh-CN.md">中文版</a>
 </p>
 
-Feishu/Lark CardKit v2.0 streaming cards plugin for Hermes Agent — real-time AI response display with typing effect, unified collapsible panel, chronological reasoning/tool display, and more.
+Feishu/Lark CardKit v2.0 streaming cards plugin for Hermes Agent — real-time AI response display with typewriter effect, unified collapsible panel, interactive approval & clarification cards, and more.
 
-> Based on [Aowen-Nowor/hermes-lark-streaming](https://github.com/Aowen-Nowor/hermes-lark-streaming) v1.1.3 (originally derived from [Cheerwhy/hermes-lark-streaming](https://github.com/Cheerwhy/hermes-lark-streaming) v0.7.0), with customizations inspired by [baileyh8/hermes-feishu-streaming-card](https://github.com/baileyh8/hermes-feishu-streaming-card) and [maidou0215/hermes-feishu-card-progress-plugin](https://github.com/maidou0215/hermes-feishu-card-progress-plugin).
->
-> ⚠️ **Incompatible with the upstream plugin** — if you have the original `Cheerwhy/hermes-lark-streaming` or `Aowen-Nowor/hermes-lark-streaming` installed, please uninstall it first before installing this version.
+> Based on [Aowen-Nowor/hermes-lark-streaming](https://github.com/Aowen-Nowor/hermes-lark-streaming) v1.1.3 (originally derived from [Cheerwhy/hermes-lark-streaming](https://github.com/Cheerwhy/hermes-lark-streaming) v0.7.0), with features ported from [larksuite/openclaw-lark](https://github.com/larksuite/openclaw-lark) (MIT, ByteDance) and customizations inspired by [baileyh8/hermes-feishu-streaming-card](https://github.com/baileyh8/hermes-feishu-streaming-card).
 >
 > 📝 **Personal fork** — maintained by [blackrion](https://github.com/blackrion) for self-use. All upstream MIT license terms are preserved.
 
 ---
 
-## Effect Preview
+## Features
 
-<table align="center">
-  <tr>
-    <td><img src="assets/screenshots/img1.png" width="200px" /></td>
-    <td><img src="assets/screenshots/img2.png" width="200px" /></td>
-    <td><img src="assets/screenshots/img3.png" width="200px" /></td>
-    <td><img src="assets/screenshots/img4.png" width="200px" /></td>
-  </tr>
-</table>
+### Streaming Reply Cards
+
+- **Real-time typewriter effect** — answer text streams in via CardKit `stream_element` API
+- **Unified collapsible panel** — reasoning rounds and tool calls displayed chronologically in a single panel, interleaving as they actually occurred
+- **Status-aware card header** — header changes color and text by state: thinking (blue), streaming (indigo), completed (green), error (red), approval (orange)
+- **Two-line footer** — line 1: status · elapsed · model; line 2: tokens · cache · context · cost
+
+### Interactive Approval Cards
+
+When the Agent attempts to execute a dangerous command (e.g., `rm`, `git push --force`), an interactive approval card is sent:
+
+- **Command preview** in a fenced code block (truncated to 3000 chars)
+- **Four approval buttons**: ✅ Allow Once · 🔁 This Session · ⭐ Always · ❌ Deny
+- **Resolved state**: after clicking, the card updates to show the decision (approved/denied) with the user's name
+- Ported from [openclaw-lark](https://github.com/larksuite/openclaw-lark) `buildConfirmCard()` (MIT, ByteDance)
+
+### Interactive Clarification Cards
+
+When the Agent uses the `clarify` tool to ask a question, a three-state interactive card is sent:
+
+- **State 1 — Pending**: question text + choice list + dropdown select + text input (500 char limit)
+- **State 2 — Submitted**: soft-lock showing the user's selection + retry button
+- **State 3 — Confirmed**: hard-lock after Hermes processes the answer, showing final selection
+
+### Gateway Message Cards
+
+All non-AI messages from the gateway (slash commands, auth, errors, session lifecycle) are converted to styled CardKit 2.0 cards with category-aware headers.
+
+### Cron Delivery Cards
+
+Scheduled task results are delivered as styled cards instead of plain text.
+
+### Additional Features
+
+- **Markdown table spacing** — proper spacing between headings, tables, and code blocks
+- **Tool parameter redaction** — sensitive headers (`-H Authorization: ...`), URLs, and file paths in tool calls are redacted for display
+- **CardKit API fail-fast** — API errors are detected and logged immediately instead of silently failing
+- **Cache hit rate** — footer shows `cache_read/cache_write (hit%)` using the correct formula
+- **Flush-on-conflict** — flush controller detects version conflicts and recovers automatically
+- **Invalid image key cleanup** — broken image references are stripped before rendering
 
 ---
 
@@ -44,23 +72,10 @@ Feishu/Lark CardKit v2.0 streaming cards plugin for Hermes Agent — real-time A
 
 ### Prerequisites
 
-- [Hermes Agent](https://github.com/NousResearch/hermes-agent) (running, with Feishu platform configured)
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent) v0.17.0+ (running, with Feishu platform configured)
 - Hermes CLI with plugin system support (`hermes plugins` command available)
 
 ### Installation
-
-> **💡 Smart Install Prompt**: Copy the following prompt to Hermes Agent, and it will automatically complete the installation:
->
-> ```
-> Help me install Feishu Ao-style Cards:
-> - GitHub: https://raw.githubusercontent.com/blackrion/hermes-lark-streaming/main/docs/AGENT_GUIDE.md
-> ```
-
-> The plugin automatically reads the `HERMES_HOME` environment variable to locate the installation path (`~/.hermes` by default). No extra steps are needed for non-default paths.
-
-**GitHub**
-
-> Choose either SSH or HTTPS:
 
 ```bash
 # GitHub (SSH)
@@ -86,7 +101,6 @@ hermes gateway restart
 
 ```bash
 # 1. Clean up injected config (while plugin code is still available)
-# Auto-detect Hermes Python path:
 HERMES_PYTHON=$(python3 ~/.hermes/plugins/hermes-lark-streaming/__main__.py python)
 $HERMES_PYTHON ~/.hermes/plugins/hermes-lark-streaming/__main__.py cleanup
 
@@ -101,140 +115,118 @@ hermes gateway restart
 
 ```bash
 hermes plugins list
-grep hermes_lark_streaming ~/.hermes/logs/agent.log
-# Auto-detect Hermes Python path:
 HERMES_PYTHON=$(python3 ~/.hermes/plugins/hermes-lark-streaming/__main__.py python)
 $HERMES_PYTHON ~/.hermes/plugins/hermes-lark-streaming/__main__.py status
-$HERMES_PYTHON ~/.hermes/plugins/hermes-lark-streaming/__main__.py verify
 $HERMES_PYTHON ~/.hermes/plugins/hermes-lark-streaming/__main__.py doctor
 ```
-
-> **Troubleshooting**: If no card effect appears, check: (1) `hermes plugins list` shows enabled; (2) no `*.bak` directories under `~/.hermes/plugins/`; (3) Feishu credentials are configured. The `doctor` command provides a one-stop diagnostic covering plugin version, Python environment, config, Feishu credentials, patch status, and log paths.
 
 ---
 
 ## Configuration
 
-All settings go under the `hermes_lark_streaming:` section in `~/.hermes/config.yaml`. The plugin auto-injects defaults on first load; run `cleanup` before uninstalling to remove them.
+All settings go under the `hermes_lark_streaming:` section in `~/.hermes/config.yaml`. The plugin auto-injects defaults on first load.
 
 ```yaml
 hermes_lark_streaming:
-  enabled: true # Enable streaming cards
-  linear: true # Single-card in-place update (unified panel architecture)
-  panel_expanded: false # Keep panels expanded in completed cards
-  streaming_panel_expanded: false # Keep panels expanded during streaming
-  print_strategy: delay # "fast" (instant) or "delay" (smoother typewriter, default)
-  flush_interval_ms: 100 # Card refresh interval in ms (70–2000, default 100)
-  card_ttl_sec: 600 # Card alive detection timeout (seconds)
-  max_tool_steps: 20 # Max tool steps shown in panel (default 20, range 1–100)
-  max_reasoning_rounds: 20 # Max reasoning rounds shown in panel (default 20, range 1–100)
+  enabled: true                # Enable streaming cards
+  linear: true                 # Single-card in-place update (unified panel architecture)
+  panel_expanded: false        # Keep panels expanded in completed cards
+  streaming_panel_expanded: false  # Keep panels expanded during streaming
+  print_strategy: delay        # "fast" (instant) or "delay" (smoother typewriter, default)
+  flush_interval_ms: 100       # Card refresh interval in ms (70–2000, default 100)
+  card_ttl_sec: 600            # Card alive detection timeout (seconds)
+  max_tool_steps: 20           # Max tool steps shown in panel (1–100)
+  max_reasoning_rounds: 20     # Max reasoning rounds shown in panel (1–100)
 
   footer:
-    show_label: false # Show field labels
-    fields:
-      - [status, elapsed, model, cost, compression_exhausted]
-      # Available fields:
-      #   status      — Reply status (Completed / Error / Stopped)
-      #   elapsed     — AI response elapsed time
-      #   model       — Model name used
-      #   cost        — Estimated cost with trust indicator ($0.023 est. / $0.023 actual / Free)
-      #   compression_exhausted — Context window is full (⚠ Context Full)
-      # Fields below are not shown by default — add them to the fields list to enable:
-      #   cache       — Cache hit rate (cache_read/total_input hit%)
-      #   tokens      — Token usage (↑ input ↓ output 💭 reasoning)
-      #   context     — Context window usage (used/total percentage)
-      #   api_calls   — Number of API calls in this session
-      #   history_offset — Conversation history offset; larger = longer history, sudden decrease = context compression
-      # Each inner list is one row in the footer; fields only shown when they have values
+    show_label: false          # Show field labels (Model, Tokens, etc.)
+    # Default: two-line layout
+    # fields:
+    #   - [status, elapsed, model]
+    #   - [tokens, cache, context, cost, compression_exhausted]
+    #
+    # Available fields:
+    #   status      — Reply status (Completed / Error / Stopped)
+    #   elapsed     — AI response elapsed time
+    #   model       — Model name used
+    #   cost        — Estimated cost ($0.023 est. / $0.023 actual / Free)
+    #   tokens      — Token usage (↑ input ↓ output 💭 reasoning)
+    #   cache       — Cache hit rate (cache_read/cache_write hit%)
+    #   context     — Context window usage (used/total percentage)
+    #   compression_exhausted — Context window is full (⚠ Context Full)
+    #   api_calls   — Number of API calls in this session
+    #   history_offset — Conversation history offset
 ```
-
-### Reasoning Panel Display
-
-```yaml
-display:
-  show_reasoning: true # Show reasoning content in the unified panel
-```
-
-### Unified Panel Overflow Compression
-
-Feishu Card 2.0 has a **hard limit of 200 elements/components** per card. Exceeding it triggers error `300305 (element exceeds the limit)`, which causes card sealing to fail and triggers a plain-text fallback — resulting in duplicate content visible to users.
-
-> **Element counting rule**: Every JSON object with a `tag` property counts as 1 element, including deeply nested ones like `standard_icon`, `plain_text`, `lark_md`, etc.
-
-#### Element Cost Breakdown
-
-| Component                  | Elements | Notes                                                                                                  |
-| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| Panel container            | 1        | `collapsible_panel`                                                                                    |
-| Panel title                | 2        | `plain_text` + `standard_icon`                                                                         |
-| Each reasoning round (max) | 4        | Title row `div`+`standard_icon`+`lark_md` + reasoning text `markdown`                                  |
-| Each tool step (max)       | 7        | Title row `div`+`standard_icon`+`lark_md` + detail row `div`+`plain_text` + result row `div`+`lark_md` |
-| Fold hint (when triggered) | 1        | 1 `markdown` element                                                                                   |
-| Answer text                | 1–3      | `markdown`; long text may be split                                                                     |
-| Footer                     | 2        | `hr` + `markdown`                                                                                      |
-| Card header (when enabled) | ~3       | `plain_text` + `standard_icon`                                                                         |
-| Error panel (when present) | ~4       | `collapsible_panel` + inner elements                                                                   |
-
-**Example calculation**: 20 reasoning rounds + 20 tool steps = 20×4 + 20×7 + fixed overhead ≈ 223 (exceeds 200)
-
-Hence the defaults `max_tool_steps=20` + `max_reasoning_rounds=20`, combined with a fold mechanism, ensure most scenarios stay within limits. Even if a higher config value or an extreme case still exceeds the cap, a built-in **card-level element safety net** kicks in — at seal time all elements are known (panel + answer + footer + error), the actual tag object count is recursively computed, and if it exceeds 195 (200 − 5 buffer), the oldest panel children are trimmed first. This guarantees the card never exceeds 200 elements. Answer, footer, and error panel are never trimmed.
-
-#### Configuration
-
-```yaml
-hermes_lark_streaming:
-  max_tool_steps: 20 # Max tool steps shown in unified panel (default 20, range 1–100)
-  max_reasoning_rounds: 20 # Max reasoning rounds shown in unified panel (default 20, range 1–100)
-```
-
-When the limit is exceeded, early items are collapsed into a single summary line, e.g.: `⚡ 10 early reasoning rounds, 5 early tool steps collapsed`
-
-The panel title always shows the **actual total** (e.g. "3 rounds · 44 tools"); the fold hint only affects what is displayed inside the panel.
 
 ### /aowen Commands
 
-Send `/aowen` commands in Feishu, the plugin replies with cards directly (bypassing Hermes AI):
+Send `/aowen` commands in Feishu, the plugin replies with cards directly:
 
-| Command                | Description                                                                                                       |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `/aowen help`          | Show all available commands                                                                                       |
-| `/aowen status`        | Show plugin status + current config (collapsible panel)                                                           |
-| `/aowen monitor`       | Show metrics dashboard (cards created, API calls, error codes, etc.)                                              |
-| `/aowen monitor reset` | Reset metrics counters                                                                                            |
-| `/aowen config reload` | After modifying `~/.hermes/config.yaml`, send this command in Feishu to apply immediately, or restart the gateway |
-| `/aowen`               | Same as `/aowen help`                                                                                             |
-
-> `/aowen` is the plugin's command prefix; all `/aowen` commands are handled by the plugin, not Hermes.
+| Command                | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| `/aowen help`          | Show all available commands                            |
+| `/aowen status`        | Show plugin status + current config                   |
+| `/aowen monitor`       | Show metrics dashboard (cards, API calls, errors)      |
+| `/aowen monitor reset` | Reset metrics counters                                 |
+| `/aowen config reload` | Apply config changes immediately without restart        |
 
 ### Feishu Credentials
 
-The plugin reuses Hermes's existing Feishu credentials — no separate configuration needed. Hermes already configures these in `~/.hermes/.env` during installation:
+The plugin reuses Hermes's existing Feishu credentials — no separate configuration needed. If the Hermes Feishu channel works, the plugin works too.
 
-```bash
-# ~/.hermes/.env (configured by Hermes, reused by plugin)
-FEISHU_APP_ID=cli_xxxxxx
-FEISHU_APP_SECRET=xxxxxx
-FEISHU_DOMAIN=feishu          # feishu=China, lark=International
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Hermes Agent                         │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │              GatewayRunner / AIAgent               │  │
+│  │   (patched at runtime — no source modification)    │  │
+│  └──────────────┬───────────────────────┬────────────┘  │
+│                 │                       │                │
+│     ┌───────────▼──────────┐  ┌────────▼─────────┐      │
+│     │   FeishuAdapter      │  │   Cron Scheduler  │      │
+│     │ .send() → intercepted │  │ .deliver → card    │      │
+│     │ .send_clarify() →     │  └──────────────────┘      │
+│     │   interactive card   │                            │
+│     │ .send_exec_approval() │                            │
+│     │   → CardKit 2.0 card  │                            │
+│     └───────────┬──────────┘                            │
+│                 │                                        │
+│  ┌──────────────▼────────────────────────────────────┐  │
+│     │              Plugin (hermes-lark-streaming)       │
+│     │                                                   │
+│     │  ┌─────────────┐  ┌──────────────┐  ┌──────────┐ │
+│     │  │ Controller   │  │  CardKit     │  │ Patching │ │
+│     │  │ (sessions,   │  │  (builders)  │  │ (monkey  │ │
+│     │  │  flush, seal)│  │              │  │  patch)  │ │
+│     │  └──────┬──────┘  └──────┬───────┘  └──────────┘ │
+│     │         │                │                        │
+│     │  ┌──────▼──────────────────────────────┐         │
+│     │  │         FeishuClient                  │         │
+│     │  │  (CardKit v2.0 API: stream_element,  │         │
+│     │  │   batch_update, close_streaming,     │         │
+│     │  │   cardkit_update, create_card)       │         │
+│     │  └──────────────────────────────────────┘         │
+│     └───────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────┘
 ```
 
-> The plugin automatically reads Hermes's Feishu credentials and domain settings. If the Hermes Feishu channel works, the plugin works too.
+### Key Design Decisions
+
+- **Runtime monkey patching** — no Hermes source files modified; all patches applied via `FeishuAdapter.method = wrapper(FeishuAdapter.method)`
+- **Unified panel architecture** — single `collapsible_panel` holds all reasoning/tool steps, reducing card elements from 50+ to 4
+- **CardKit 2.0 streaming** — uses `stream_element` for real-time text, `batch_update` for panel, `close_streaming` + `cardkit_update` for seal
+- **Three-state interactive cards** — clarify and approval cards maintain pending → submitted → confirmed states
+- **Fallback safety** — every card operation falls back to plain text if CardKit API fails
 
 ---
-
-## Developer Guide & Changelog
-
-> 📖 **[SKILL.md](docs/SKILL.md)** — LLM quick-start guide. Architecture, key design decisions, efficient code modification guide.
-
-> For the full version history, see [CHANGELOG.md](docs/CHANGELOG.md)
-
-> ⚠️ **Important Notice:** If upgrading from v1.0.1 or below, please follow the uninstallation process to remove the old version and freshly install the new one. Do NOT upgrade via the update command!
-
----
-
-## How to Submit Issues
-
-> Please refer to the template [ISSUES_TEMPLATE.md](docs/ISSUES_TEMPLATE.md)
 
 ## Acknowledgments
 
-[![joshcheng820222](https://avatars.githubusercontent.com/u/26886147?v=4&s=66)](https://github.com/joshcheng820222) [![xuu1998](https://avatars.githubusercontent.com/u/40609659?v=4&s=66)](https://github.com/xuu1998) [![joshchengjoshcheng](assets/avatars/joshchengjoshcheng.png)](https://gitee.com/joshchengjoshcheng)
+- [Aowen-Nowor/hermes-lark-streaming](https://github.com/Aowen-Nowor/hermes-lark-streaming) — upstream plugin base (MIT)
+- [Cheerwhy/hermes-lark-streaming](https://github.com/Cheerwhy/hermes-lark-streaming) — original plugin (MIT)
+- [larksuite/openclaw-lark](https://github.com/larksuite/openclaw-lark) — official Feishu plugin, features ported under MIT license
+- [baileyh8/hermes-feishu-streaming-card](https://github.com/baileyh8/hermes-feishu-streaming-card) — header/status design inspiration
