@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Quick functional tests for new absorbed features."""
 import sys, os, json
-sys.path.insert(0, os.path.dirname(__file__))
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 # ── Test Table features ──
 print("=" * 50)
@@ -66,7 +69,9 @@ print("Testing Attachment Features (← baileyh8)")
 print("=" * 50)
 
 import importlib.util
-spec = importlib.util.spec_from_file_location("attachments", os.path.join(os.path.dirname(__file__), "state", "attachments.py"))
+attachment_path = ROOT / "state" / "attachments.py"
+spec = importlib.util.spec_from_file_location("attachments", attachment_path)
+assert spec is not None and spec.loader is not None
 attachments_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(attachments_mod)
 extract_attachment_summaries = attachments_mod.extract_attachment_summaries
@@ -120,7 +125,7 @@ assert len(deny_btn) == 1, f"Expected 1 danger button, got {len(deny_btn)}"
 for btn in buttons:
     val = btn["behaviors"][0]["value"]
     assert val["approval_id"] == "appr_123"
-    assert val["action"] in ("allow_once", "allow_session", "allow_always", "deny")
+    assert val["hermes_action"] in ("approve_once", "approve_session", "approve_always", "deny")
 print("✅ Test 10: Approval card 4-button layout - PASS")
 
 print()

@@ -175,10 +175,11 @@ def build_streaming_card_v2(
     show_streaming_element: bool = True,
     streaming_panel_expanded: bool = True,
     print_strategy: str = "delay",
-    header_enabled: bool = False,
+    header_enabled: bool = True,
     include_unified_panel: bool = True,
     include_loading_hint: bool = True,
     include_answer_element: bool = True,
+    attachment_summary_elements: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """CardKit 2.0 流式占位卡片 — placeholder card for streaming mode.
 
@@ -205,6 +206,9 @@ def build_streaming_card_v2(
         added alongside the panel when the first content arrives.
     """
     elements: list[dict] = []
+
+    if attachment_summary_elements:
+        elements.extend(attachment_summary_elements)
 
     # ── Unified panel placeholder (linear mode — single panel for reasoning+tools) ──
     if include_unified_panel:
@@ -239,23 +243,33 @@ def build_streaming_card_v2(
         "body": {"elements": elements},
     }
     if header_enabled:
-        card["header"] = _build_header("streaming")
+        card["header"] = _build_header(
+            "streaming",
+            subtitle=("Thinking · live response", "思考中 · 实时回复"),
+        )
     return card
 
 
-def build_im_fallback_card() -> dict[str, Any]:
+def build_im_fallback_card(
+    *,
+    attachment_summary_elements: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    elements: list[dict[str, Any]] = []
+    if attachment_summary_elements:
+        elements.extend(attachment_summary_elements)
+    elements.append(
+        {
+            "tag": "markdown",
+            "content": _T["processing_prefix"][0],
+            "i18n_content": _t("processing_prefix"),
+        }
+    )
     return {
         "config": {
             "update_multi": True,
             "locales": _LOCALES,
         },
-        "elements": [
-            {
-                "tag": "markdown",
-                "content": _T["processing_prefix"][0],
-                "i18n_content": _t("processing_prefix"),
-            },
-        ],
+        "elements": elements,
     }
 
 
@@ -274,10 +288,11 @@ def build_unified_complete_card(
     footer_fields: list[list[str]] | None = None,
     footer_show_label: bool = True,
     panel_expanded: bool = False,
-    header_enabled: bool = False,
+    header_enabled: bool = True,
     panel_events: list[tuple[str, int]] | None = None,
     max_tool_steps: int = 20,
     max_reasoning_rounds: int = 20,
+    enable_native_tables: bool = True,
 ) -> dict[str, Any]:
     """Unified panel complete card — single panel for reasoning+tools, plus answer.
 
@@ -345,11 +360,16 @@ def build_unified_complete_card(
         content = optimize_markdown_style(answer_text)
         content, img_elements = _extract_images_from_markdown(content)
         elements.extend(img_elements)
-        # 原生 Table 组件渲染：Markdown 表格 → 飞书 Table 元素，文本/表格保序
-        table_elements = render_markdown_with_tables(content)
-        for el in table_elements:
+        if enable_native_tables:
+            rendered_elements = render_markdown_with_tables(content)
+        else:
+            rendered_elements = [{
+                "tag": "markdown",
+                "content": _downgrade_tables(content),
+            }]
+        for el in rendered_elements:
             if el.get("tag") == "markdown":
-                for chunk in _split_long_text(el["content"]):
+                for chunk in _split_long_text(el.get("content", "")):
                     if chunk.strip():
                         elements.append({"tag": "markdown", "content": chunk})
             else:
@@ -400,11 +420,20 @@ def build_unified_complete_card(
         card["config"]["summary"] = _build_summary(summary)
     if header_enabled:
         if is_error:
-            card["header"] = _build_header("error")
+            card["header"] = _build_header(
+                "error",
+                subtitle=("Reply failed", "回复失败"),
+            )
         elif is_aborted:
-            card["header"] = _build_header("stopped")
+            card["header"] = _build_header(
+                "stopped",
+                subtitle=("Reply interrupted", "回复已中断"),
+            )
         else:
-            card["header"] = _build_header("completed")
+            card["header"] = _build_header(
+                "completed",
+                subtitle=("Response completed", "回复已完成"),
+            )
     card["body"] = {"elements": elements}
 
     # ── Card-level element limit safety net ──

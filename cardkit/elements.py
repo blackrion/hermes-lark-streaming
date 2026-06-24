@@ -57,26 +57,91 @@ __all__ = [
 ]
 
 # 匹配 markdown 图片语法: ![alt](url)
-_HEADER_STATES: dict[str, dict[str, str]] = {
-    "streaming": {"template": "blue", "i18n_key": "processing_prefix"},
-    "completed": {"template": "green", "i18n_key": "status_completed"},
-    "error": {"template": "red", "i18n_key": "status_error"},
-    "stopped": {"template": "red", "i18n_key": "status_stopped"},
+_HEADER_STATES: dict[str, dict[str, Any]] = {
+    "streaming": {
+        "template": "indigo",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": ("Thinking", "思考中"),
+    },
+    "completed": {
+        "template": "green",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": _T["status_completed"],
+    },
+    "error": {
+        "template": "red",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": _T["status_error"],
+    },
+    "stopped": {
+        "template": "orange",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": _T["status_stopped"],
+    },
+    "gateway": {
+        "template": "blue",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": ("Notification", "通知"),
+    },
+    "cron": {
+        "template": "turquoise",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": ("Scheduled task", "定时任务"),
+    },
+    "clarify": {
+        "template": "orange",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": ("Needs clarification", "需要澄清"),
+    },
+    "approval": {
+        "template": "orange",
+        "title": ("Hermes Agent", "Hermes Agent"),
+        "subtitle": ("Authorization required", "需要授权"),
+    },
 }
 
 
-def _build_header(status: str) -> dict[str, Any]:
-    """Build card-level header — streaming blue / completed green / stopped red."""
+def _coerce_i18n_pair(value: Any, fallback: tuple[str, str]) -> tuple[str, str]:
+    """Normalize a header title/subtitle value into ``(en, zh)`` text."""
+    if isinstance(value, tuple) and len(value) == 2:
+        return str(value[0]), str(value[1])
+    if isinstance(value, list) and len(value) == 2:
+        return str(value[0]), str(value[1])
+    if isinstance(value, str) and value.strip():
+        return value.strip(), value.strip()
+    return fallback
+
+
+def _build_header(
+    status: str,
+    *,
+    title: str | tuple[str, str] | None = None,
+    subtitle: str | tuple[str, str] | None = None,
+    template: str | None = None,
+) -> dict[str, Any]:
+    """Build a polished card-level header with title, subtitle, and color.
+
+    Inspired by baileyh8's status-aware header: running cards use an indigo
+    header, completed cards green, errors red, and interactive cards orange.
+    """
     cfg = _HEADER_STATES.get(status, _HEADER_STATES["completed"])
-    en_text, zh_text = _T[cfg["i18n_key"]]
-    return {
+    title_en, title_zh = _coerce_i18n_pair(title, cfg["title"])
+    subtitle_en, subtitle_zh = _coerce_i18n_pair(subtitle, cfg["subtitle"])
+    header = {
         "title": {
             "tag": "plain_text",
-            "content": en_text,
-            "i18n_content": _i18n(en_text, zh_text),
+            "content": title_en,
+            "i18n_content": _i18n(title_en, title_zh),
         },
-        "template": cfg["template"],
+        "template": template or cfg["template"],
     }
+    if subtitle_en or subtitle_zh:
+        header["subtitle"] = {
+            "tag": "plain_text",
+            "content": subtitle_en,
+            "i18n_content": _i18n(subtitle_en, subtitle_zh),
+        }
+    return header
 
 
 _IMG_MD_PATTERN = re.compile(r"!\[([^\]]*)\]\((img_[^)\s]+)\)")

@@ -80,11 +80,7 @@ class HermesCompat:
             _logger.debug("HLS: AIAgent not available yet")
         
         # FeishuAdapter
-        try:
-            from gateway.platforms.feishu import FeishuAdapter
-            self.feishu_adapter_class = FeishuAdapter
-        except (ImportError, AttributeError):
-            _logger.debug("HLS: FeishuAdapter not available")
+        self.feishu_adapter_class = self._resolve_feishu_adapter_class()
         
         # Cron scheduler
         for mod_name in ("cron.scheduler", "gateway.cron.scheduler"):
@@ -98,6 +94,77 @@ class HermesCompat:
         
         # Conversation loop (with namespace collision workaround)
         self._resolve_conversation_loop()
+    
+    def _resolve_feishu_adapter_class(self) -> Any | None:
+        """Resolve FeishuAdapter across Hermes versions and plugin layouts.
+
+        Hermes v0.17 loads Feishu as a plugin platform, so the old import path
+        ``gateway.platforms.feishu`` is often absent.  Prefer direct imports
+        when possible, then inspect the platform registry entry, and finally
+        fall back to already-loaded modules in ``sys.modules``.
+        """
+        module_candidates = (
+            "gateway.platforms.feishu",
+            "hermes_plugins.feishu_platform.adapter",
+            "feishu_platform.adapter",
+        )
+        for mod_name in module_candidates:
+            try:
+                mod = importlib.import_module(mod_name)
+                adapter_cls = getattr(mod, "FeishuAdapter", None)
+                if adapter_cls is not None:
+                    _logger.debug("HLS: FeishuAdapter resolved via module %s", mod_name)
+                    return adapter_cls
+            except (ImportError, AttributeError):
+                continue
+
+        try:
+            from gateway.platform_registry import platform_registry
+            entry = platform_registry.get("feishu")
+            factory = getattr(entry, "adapter_factory", None) if entry is not None else None
+            adapter_cls = self._extract_adapter_class_from_factory(factory)
+            if adapter_cls is not None:
+                _logger.debug("HLS: FeishuAdapter resolved via platform_registry")
+                return adapter_cls
+        except Exception as e:
+            _logger.debug("HLS: platform_registry FeishuAdapter lookup failed: %s", e)
+
+        for mod_name, mod in list(sys.modules.items()):
+            if "feishu" not in mod_name.lower():
+                continue
+            adapter_cls = getattr(mod, "FeishuAdapter", None)
+            if adapter_cls is not None:
+                _logger.debug("HLS: FeishuAdapter resolved via sys.modules %s", mod_name)
+                return adapter_cls
+
+        _logger.debug("HLS: FeishuAdapter not available")
+        return None
+
+    @staticmethod
+    def _extract_adapter_class_from_factory(factory: Any) -> Any | None:
+        """Extract FeishuAdapter class from a registry adapter factory."""
+        if factory is None:
+            return None
+        if isinstance(factory, type):
+            return factory
+
+        globals_map = getattr(factory, "__globals__", {}) or {}
+        adapter_cls = globals_map.get("FeishuAdapter")
+        if adapter_cls is not None:
+            return adapter_cls
+
+        closure = getattr(factory, "__closure__", None) or ()
+        for cell in closure:
+            try:
+                value = cell.cell_contents
+            except ValueError:
+                continue
+            if isinstance(value, type) and value.__name__ == "FeishuAdapter":
+                return value
+            nested = getattr(value, "FeishuAdapter", None)
+            if nested is not None:
+                return nested
+        return None
     
     def _resolve_conversation_loop(self) -> None:
         """Resolve agent.conversation_loop, handling Apple Silicon namespace collision."""

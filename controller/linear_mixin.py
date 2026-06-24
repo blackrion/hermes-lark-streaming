@@ -53,6 +53,7 @@ from ..cardkit import (
     _enforce_card_element_limit,
 )
 from ..cardkit.md import _downgrade_tables, optimize_markdown_style
+from ..state.attachments import build_attachment_summary_elements
 from ..state.linear import UnifiedLinearState
 from ..state.text import split_reasoning_text
 from ..feishu import (
@@ -216,6 +217,9 @@ class UnifiedControllerMixin:
 
             try:
                 reply_to = session.anchor_id or session.message_id
+                attachment_summary_elements = build_attachment_summary_elements(
+                    session.attachment_summaries
+                )
                 card = build_streaming_card_v2(
                     include_unified_panel=False,   # Panel added on first token
                     include_answer_element=False,   # Answer element added with panel
@@ -223,9 +227,14 @@ class UnifiedControllerMixin:
                     streaming_panel_expanded=self._cfg.streaming_panel_expanded,
                     print_strategy=self._cfg.print_strategy,
                     header_enabled=self._cfg.header_enabled,
+                    attachment_summary_elements=attachment_summary_elements,
                 )
                 card_id = await self._client.cardkit_create(card)
-                card_msg_id = await self._client.reply_card_by_id(reply_to, card_id)
+                card_msg_id = await self._client.reply_card_by_id(
+                    reply_to,
+                    card_id,
+                    reply_in_thread=bool(session.thread_id),
+                )
 
                 session.card_id = card_id
                 session.card_msg_id = card_msg_id
@@ -242,8 +251,14 @@ class UnifiedControllerMixin:
 
             except FeishuAPIError:
                 _logger.info("linear CardKit create failed, falling back to IM card")
-                card = build_im_fallback_card()
-                card_msg_id = await self._client.reply_card(reply_to, card)
+                card = build_im_fallback_card(
+                    attachment_summary_elements=attachment_summary_elements,
+                )
+                card_msg_id = await self._client.reply_card(
+                    reply_to,
+                    card,
+                    reply_in_thread=bool(session.thread_id),
+                )
                 session.card_msg_id = card_msg_id
                 session.use_cardkit = False
                 # v1.1.3: 保留 unified_state 和 linear=True
@@ -394,7 +409,10 @@ class UnifiedControllerMixin:
 
         # 用当前累积的 answer_text 构建完整卡片
         content = state.answer_text or "处理中..."
-        card = build_gateway_card(content)
+        card = build_gateway_card(
+            content,
+            enable_native_tables=self._cfg.enable_native_tables,
+        )
 
         try:
             await self._client.update_card(session.card_msg_id, card)
@@ -427,17 +445,19 @@ class UnifiedControllerMixin:
 
         try:
             from ..cardkit.special import build_gateway_card
-            from ..cardkit.md import optimize_markdown_style, _downgrade_tables
 
-            # 构建最终内容
+            # 构建最终内容；表格是否原生渲染交给 build_gateway_card 按配置处理。
             if error_message:
                 content = error_message
             elif state and state.answer_text:
-                content = _downgrade_tables(optimize_markdown_style(state.answer_text)) or state.answer_text
+                content = state.answer_text
             else:
                 content = "完成"
 
-            card = build_gateway_card(content)
+            card = build_gateway_card(
+                content,
+                enable_native_tables=self._cfg.enable_native_tables,
+            )
             await self._client.update_card(session.card_msg_id, card)
 
             _logger.info(
@@ -1709,6 +1729,7 @@ class UnifiedControllerMixin:
                     panel_events=state.panel_events if state else None,
                     max_tool_steps=self._cfg.max_tool_steps,
                     max_reasoning_rounds=self._cfg.max_reasoning_rounds,
+                    enable_native_tables=self._cfg.enable_native_tables,
                 )
                 session.sequence += 1
                 assert self._client is not None
@@ -1735,6 +1756,13 @@ class UnifiedControllerMixin:
 
         if seal_ok:
             session.state = COMPLETED
+            reaction_on_complete = (self._cfg.reaction_on_complete or "").strip()
+            if reaction_on_complete and session.card_msg_id and self._client is not None:
+                if await self._client.add_reaction(session.card_msg_id, reaction_on_complete):
+                    _logger.info(
+                        "HLS: completion reaction added msg=%s emoji=%s",
+                        session.card_msg_id[:12], reaction_on_complete,
+                    )
             # v1.1.1: 释放重数据（unified_state/text/tool_use），减少内存占用
             # session 留最小元数据等 _prune_stale_sessions 清理
             try:

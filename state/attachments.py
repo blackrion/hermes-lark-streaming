@@ -38,17 +38,28 @@ def extract_attachment_summaries(
     - ``attachments`` 列表（结构化对象）
     - ``files`` 列表
     - ``media_files`` 列表
+    - ``media_urls`` / ``media_types``（Hermes ``MessageEvent`` 的本地媒体缓存）
     - 文本中的 ``MEDIA:`` 前缀标记
     - 文本中的媒体文件路径
 
     Args:
-        source: Hermes 消息数据（dict 或对象），可能包含 attachments/files/media_files.
+        source: Hermes 消息数据（dict 或对象），可能包含 attachments/files/media_files/media_urls.
         text: 消息文本内容，用于扫描 MEDIA: 标记和文件路径.
 
     Returns:
         附件摘要列表，每项 ``{"type": "image|audio|video|file", "summary": "描述文本"}``.
     """
     summaries: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add_summary(summary: dict[str, str] | None) -> None:
+        if not summary:
+            return
+        key = f"{summary.get('type', '')}\0{summary.get('summary', '')}"
+        if key in seen:
+            return
+        seen.add(key)
+        summaries.append(summary)
 
     # ── 结构化附件对象检测 ──
     if isinstance(source, dict):
@@ -57,23 +68,27 @@ def extract_attachment_summaries(
             if not isinstance(items, list):
                 continue
             for item in items:
-                summary = _summarize_attachment_item(item)
-                if summary:
-                    summaries.append(summary)
+                add_summary(_summarize_attachment_item(item))
+        media_urls = source.get("media_urls")
+        media_types = source.get("media_types")
+        for summary in _summarize_media_urls(media_urls, media_types):
+            add_summary(summary)
     elif hasattr(source, "__dict__"):
         for key in ("attachments", "files", "media_files"):
             items = getattr(source, key, None)
             if not isinstance(items, list):
                 continue
             for item in items:
-                summary = _summarize_attachment_item(item)
-                if summary:
-                    summaries.append(summary)
+                add_summary(_summarize_attachment_item(item))
+        media_urls = getattr(source, "media_urls", None)
+        media_types = getattr(source, "media_types", None)
+        for summary in _summarize_media_urls(media_urls, media_types):
+            add_summary(summary)
 
     # ── 文本扫描：MEDIA: 标记 ──
     if text:
         for m in _MEDIA_PREFIX_RE.finditer(text):
-            summaries.append({"type": "file", "summary": f"📎 {m.group(1).strip()}"})
+            add_summary(_summarize_media_entry(m.group(1).strip(), ""))
 
         # ── 文本扫描：媒体文件路径 ──
         for m in _MEDIA_PATH_RE.finditer(text):
@@ -82,7 +97,7 @@ def extract_attachment_summaries(
             media_type = _ext_to_media_type(ext)
             emoji = _MEDIA_EMOJI.get(media_type, "📎")
             name = path.rsplit("/", 1)[-1] if "/" in path else path
-            summaries.append({"type": media_type, "summary": f"{emoji} {name}"})
+            add_summary({"type": media_type, "summary": f"{emoji} {name}"})
 
     return summaries
 
@@ -90,11 +105,7 @@ def extract_attachment_summaries(
 def _summarize_attachment_item(item: Any) -> dict[str, str] | None:
     """归纳单个附件对象为摘要."""
     if isinstance(item, str):
-        ext = item.rsplit(".", 1)[-1].lower() if "." in item else ""
-        media_type = _ext_to_media_type(ext)
-        emoji = _MEDIA_EMOJI.get(media_type, "📎")
-        name = item.rsplit("/", 1)[-1] if "/" in item else item
-        return {"type": media_type, "summary": f"{emoji} {name}"}
+        return _summarize_media_entry(item, "")
 
     if isinstance(item, dict):
         # 尝试提取类型和名称
@@ -124,6 +135,51 @@ def _summarize_attachment_item(item: Any) -> dict[str, str] | None:
         return {"type": media_type, "summary": f"{emoji} {media_type.title()}"}
 
     return None
+
+
+def _summarize_media_urls(
+    media_urls: Any,
+    media_types: Any,
+) -> list[dict[str, str]]:
+    """归纳 Hermes MessageEvent.media_urls/media_types 为附件摘要."""
+    if not isinstance(media_urls, list):
+        return []
+    type_list = media_types if isinstance(media_types, list) else []
+    summaries: list[dict[str, str]] = []
+    for index, media_url in enumerate(media_urls):
+        summary = _summarize_media_entry(
+            media_url,
+            type_list[index] if index < len(type_list) else "",
+        )
+        if summary:
+            summaries.append(summary)
+    return summaries
+
+
+def _summarize_media_entry(path_or_url: Any, media_type_hint: Any = "") -> dict[str, str] | None:
+    """归纳本地媒体路径/URL 为摘要."""
+    if not isinstance(path_or_url, str) or not path_or_url.strip():
+        return None
+    raw = path_or_url.strip()
+    name = raw.rsplit("/", 1)[-1] if "/" in raw else raw
+    media_type = _normalize_media_type(media_type_hint, fallback_name=name)
+    emoji = _MEDIA_EMOJI.get(media_type, "📎")
+    return {"type": media_type, "summary": f"{emoji} {name}"}
+
+
+def _normalize_media_type(media_type_hint: Any, *, fallback_name: str = "") -> str:
+    """标准化 Hermes/Feishu 媒体类型提示."""
+    value = str(media_type_hint or "").lower()
+    if "image" in value or "photo" in value or "img" in value:
+        return "image"
+    if "audio" in value or "voice" in value:
+        return "audio"
+    if "video" in value:
+        return "video"
+    if "document" in value or "file" in value or "application" in value:
+        return "file"
+    ext = fallback_name.rsplit(".", 1)[-1].lower() if "." in fallback_name else ""
+    return _ext_to_media_type(ext)
 
 
 def _ext_to_media_type(ext: str) -> str:

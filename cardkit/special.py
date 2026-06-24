@@ -14,6 +14,7 @@ from .md import (
     optimize_markdown_style,
 )
 from .table import render_markdown_with_tables
+from .elements import _build_header
 
 
 
@@ -26,26 +27,72 @@ __all__ = [
     'build_approval_card',
 ]
 
-def build_cron_card(content: str) -> dict[str, Any]:
-    """Cron 推送用的极简静态卡片 — schema 2.0，仅 markdown 内容."""
+
+def _summary(text: str) -> dict[str, Any]:
+    """Build Feishu list-summary text with i18n fallback."""
+    summary = text[:120].replace("\n", " ").replace("```", "").strip()
+    return {"content": summary, "i18n_content": _i18n(summary, summary)}
+
+
+_GATEWAY_CATEGORY_HEADER: dict[str, tuple[str, tuple[str, str]]] = {
+    "auth": ("approval", ("Authentication", "认证消息")),
+    "error": ("error", ("Gateway error", "网关错误")),
+    "session": ("completed", ("Session update", "会话更新")),
+    "slash": ("gateway", ("Command response", "命令响应")),
+    "system": ("gateway", ("System notification", "系统通知")),
+}
+
+
+def _append_rendered_markdown(
+    elements: list[dict[str, Any]],
+    content: str,
+    *,
+    enable_native_tables: bool,
+    max_tables: int = _MAX_CRON_TABLES,
+) -> None:
+    """Append markdown/table elements according to native-table config."""
+    optimized = optimize_markdown_style(content)
+    if enable_native_tables:
+        rendered = render_markdown_with_tables(optimized, max_tables=max_tables)
+    else:
+        rendered = [{
+            "tag": "markdown",
+            "content": _downgrade_tables(optimized, limit=max_tables),
+        }]
+
+    for el in rendered:
+        if el.get("tag") == "markdown":
+            for chunk in _split_long_text(el.get("content", "")):
+                if chunk.strip():
+                    elements.append({"tag": "markdown", "content": chunk})
+        else:
+            elements.append(el)
+
+
+def build_cron_card(
+    content: str,
+    *,
+    enable_native_tables: bool = True,
+) -> dict[str, Any]:
+    """Cron 推送卡片 — colored header + markdown/native-table body."""
     card: dict[str, Any] = {
         "schema": "2.0",
-        "config": {"locales": _LOCALES},
+        "config": {"locales": _LOCALES, "streaming_mode": False},
+        "header": _build_header(
+            "cron",
+            subtitle=("Scheduled delivery", "定时任务推送"),
+        ),
         "body": {"elements": []},
     }
     if not content.strip():
         return card
-    summary = content[:120].replace("\n", " ").replace("```", "").strip()
-    if summary:
-        card["config"]["summary"] = {"content": summary}
-    # 原生 Table 组件渲染：Markdown 表格 → 飞书 Table 元素
-    for el in render_markdown_with_tables(optimize_markdown_style(content), max_tables=_MAX_CRON_TABLES):
-        if el.get("tag") == "markdown":
-            for chunk in _split_long_text(el["content"]):
-                if chunk.strip():
-                    card["body"]["elements"].append({"tag": "markdown", "content": chunk})
-        else:
-            card["body"]["elements"].append(el)
+    card["config"]["summary"] = _summary(content)
+    _append_rendered_markdown(
+        card["body"]["elements"],
+        content,
+        enable_native_tables=enable_native_tables,
+        max_tables=_MAX_CRON_TABLES,
+    )
     return card
 
 
@@ -55,25 +102,14 @@ def build_gateway_card(
     category: str = "",
     status_label: str = "",
     status_emoji: str = "",
+    enable_native_tables: bool = True,
 ) -> dict[str, Any]:
-    """Gateway-internal message card — lightweight, static, no streaming.
+    """Gateway-internal message card — colored header + clean content body.
 
     Used for slash command replies, auth messages, session lifecycle
-    notifications, error messages, and all non-AI, non-interactive text
-    that Hermes sends to the Feishu user.
-
-    Displays the Hermes native message content in a clean card without
-    any extra emoji or icon prefix.
-
-    Args:
-        content: The text content to display in the card.
-        category: Retained for reaction interception routing; no longer
-            affects card visual appearance.
-        status_label: Optional status indicator text (e.g. "Reading",
-            "Processing"). When set, shows a status line with emoji + label.
-        status_emoji: Optional emoji for the status indicator.
+    notifications, errors, and all non-AI text that Hermes sends to Feishu.
     """
-    elements: list[dict] = []
+    elements: list[dict[str, Any]] = []
 
     # ── Status indicator (from reaction interception) ──
     if status_label and status_emoji:
@@ -88,20 +124,30 @@ def build_gateway_card(
         })
 
     if content.strip():
-        for chunk in _split_long_text(_downgrade_tables(optimize_markdown_style(content), limit=_MAX_CRON_TABLES)):
-            if chunk.strip():
-                elements.append({"tag": "markdown", "content": chunk})
+        _append_rendered_markdown(
+            elements,
+            content,
+            enable_native_tables=enable_native_tables,
+            max_tables=_MAX_CRON_TABLES,
+        )
+
+    header_status, subtitle = _GATEWAY_CATEGORY_HEADER.get(
+        category or "system",
+        _GATEWAY_CATEGORY_HEADER["system"],
+    )
+    if status_label:
+        label = f"{status_emoji} {status_label}".strip()
+        subtitle = (label, label)
 
     card: dict[str, Any] = {
         "schema": "2.0",
-        "config": {"locales": _LOCALES},
+        "config": {"locales": _LOCALES, "streaming_mode": False},
+        "header": _build_header(header_status, subtitle=subtitle),
         "body": {"elements": elements},
     }
 
-    summary = content[:120].replace("\n", " ").replace("```", "").strip() if content.strip() else ""
-    if summary:
-        card["config"]["summary"] = {"content": summary}
-
+    if content.strip():
+        card["config"]["summary"] = _summary(content)
     return card
 
 
@@ -114,6 +160,7 @@ def build_clarify_card(
     """构建 Clarify 待选择态卡片（State 1: Pending）.
 
     三态卡片设计 — 待选择态:
+      - 彩色 header: 延续运行卡/上游优秀 UI 的状态化视觉
       - 标题: helpdesk_outlined 图标 + 问题文本
       - 选项列表: markdown 全量展示所有选项（A. B. C.）
       - 快速选择: select_static 下拉框（仅含预定义选项，无 "其他" 选项）
@@ -125,7 +172,7 @@ def build_clarify_card(
         choices: 选项列表，None/空表示开放式问题
         clarify_id: 唯一标识，用于回调路由
     """
-    elements: list[dict] = []
+    elements: list[dict[str, Any]] = []
 
     # ── 问题标题 (helpdesk_outlined icon) ──
     elements.append({
@@ -155,7 +202,7 @@ def build_clarify_card(
         })
 
         # ── 快速选择: select_static 下拉框（无 "其他" 选项） ──
-        options: list[dict] = []
+        options: list[dict[str, Any]] = []
         for i, choice in enumerate(choices):
             label = chr(ord("A") + i)
             options.append({
@@ -205,12 +252,19 @@ def build_clarify_card(
     }
     elements.append(input_el)
 
+    summary_text = question or "Clarification required"
     card: dict[str, Any] = {
         "schema": "2.0",
         "config": {
             "streaming_mode": False,
             "locales": _LOCALES,
+            "summary": _summary(summary_text),
         },
+        "header": _build_header(
+            "clarify",
+            title=("Hermes Clarification", "Hermes 澄清确认"),
+            subtitle=("Choose an option or type a custom answer", "请选择选项或输入自定义回答"),
+        ),
         "body": {"elements": elements},
     }
     return card
@@ -235,7 +289,7 @@ def build_approval_card(
         description: 授权描述/理由.
         approval_id: 唯一标识，用于回调路由.
     """
-    elements: list[dict] = []
+    elements: list[dict[str, Any]] = []
 
     # ── 标题 ──
     title_text = f"🔐 **{tool_name}**" if tool_name else "🔐 **Authorization Required**"
@@ -278,7 +332,11 @@ def build_approval_card(
                 "width": "weighted",
                 "weight": 1,
                 "elements": [
-                    _button("✅ 允许一次", "primary", {**callback_value, "action": "allow_once"}),
+                    _button(
+                        "✅ 允许一次",
+                        "primary",
+                        {**callback_value, "hermes_action": "approve_once"},
+                    ),
                 ],
             },
             {
@@ -286,7 +344,11 @@ def build_approval_card(
                 "width": "weighted",
                 "weight": 1,
                 "elements": [
-                    _button("🔁 本会话", "default", {**callback_value, "action": "allow_session"}),
+                    _button(
+                        "🔁 本会话",
+                        "default",
+                        {**callback_value, "hermes_action": "approve_session"},
+                    ),
                 ],
             },
         ],
@@ -300,7 +362,11 @@ def build_approval_card(
                 "width": "weighted",
                 "weight": 1,
                 "elements": [
-                    _button("⭐ 始终允许", "default", {**callback_value, "action": "allow_always"}),
+                    _button(
+                        "⭐ 始终允许",
+                        "default",
+                        {**callback_value, "hermes_action": "approve_always"},
+                    ),
                 ],
             },
             {
@@ -308,21 +374,31 @@ def build_approval_card(
                 "width": "weighted",
                 "weight": 1,
                 "elements": [
-                    _button("❌ 拒绝", "danger", {**callback_value, "action": "deny"}),
+                    _button(
+                        "❌ 拒绝",
+                        "danger",
+                        {**callback_value, "hermes_action": "deny"},
+                    ),
                 ],
             },
         ],
     })
 
+    summary_text = tool_name or description or "Authorization required"
     return {
         "schema": "2.0",
         "config": {
             "streaming_mode": False,
             "locales": _LOCALES,
+            "summary": _summary(summary_text),
         },
+        "header": _build_header(
+            "approval",
+            title=("Hermes Approval", "Hermes 授权请求"),
+            subtitle=("Tool execution needs your confirmation", "工具执行需要你的确认"),
+        ),
         "body": {"elements": elements},
     }
-
 
 def build_clarify_submitted_card(
     *,
@@ -412,7 +488,13 @@ def build_clarify_submitted_card(
         "config": {
             "streaming_mode": False,
             "locales": _LOCALES,
+            "summary": _summary(selected or question),
         },
+        "header": _build_header(
+            "clarify",
+            title=("Clarification Submitted", "澄清已提交"),
+            subtitle=("Waiting for confirmation", "等待确认"),
+        ),
         "body": {"elements": elements},
     }
     return card
@@ -484,7 +566,13 @@ def build_clarify_confirmed_card(
         "config": {
             "streaming_mode": False,
             "locales": _LOCALES,
+            "summary": _summary(selected or question),
         },
+        "header": _build_header(
+            "completed",
+            title=("Clarification Confirmed", "澄清已确认"),
+            subtitle=("Selection locked", "选择已锁定"),
+        ),
         "body": {"elements": elements},
     }
     return card

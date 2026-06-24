@@ -106,6 +106,17 @@ def _wrap_handle_message_with_agent(orig: Callable) -> Callable:
         mid = event.message_id
         anchor_id = self._reply_anchor_for_event(event)
         chat_id = source.chat_id if hasattr(source, "chat_id") else ""
+        thread_id = getattr(source, "thread_id", None) or None
+        attachment_summaries: list[dict[str, str]] = []
+        try:
+            from ..state.attachments import extract_attachment_summaries
+
+            attachment_summaries = extract_attachment_summaries(
+                event,
+                text=getattr(event, "text", "") or "",
+            )
+        except Exception:
+            _logger.debug("HLS: attachment summary extraction failed", exc_info=True)
 
         # Track this message as started (for interrupt detection)
         with _started_msg_ids_lock:
@@ -119,6 +130,8 @@ def _wrap_handle_message_with_agent(orig: Callable) -> Callable:
                 message_id=mid,
                 chat_id=chat_id,
                 anchor_id=anchor_id,
+                thread_id=thread_id,
+                attachment_summaries=attachment_summaries,
             )
         except Exception:
             _logger.warning("HLS: suppressed exception", exc_info=True)
@@ -129,6 +142,8 @@ def _wrap_handle_message_with_agent(orig: Callable) -> Callable:
             "message_id": mid,
             "chat_id": chat_id,
             "anchor_id": anchor_id,
+            "thread_id": thread_id,
+            "attachment_summaries": attachment_summaries,
             "event_message_id": "",  # filled by _wrap_run_agent
             "card_sent": False,
             "_msg_start_time": time.monotonic(),  # 自计时：替代无法获取的 _response_time 局部变量
@@ -229,6 +244,7 @@ def _wrap_handle_message_with_agent(orig: Callable) -> Callable:
                             new_message_id=_interrupt_new_mid,
                             chat_id=chat_id,
                             anchor_id=anchor_id,
+                            thread_id=thread_id,
                         )
                     except Exception:
                         _logger.warning("HLS: suppressed exception", exc_info=True)
@@ -340,10 +356,23 @@ def _wrap_run_agent(orig: Callable) -> Callable:
                     (ctx.get("message_id") or "?")[:12],
                     _interrupt_depth,
                 )
+                child_thread_id = getattr(source, "thread_id", None) or None
+                child_attachment_summaries: list[dict[str, str]] = []
+                try:
+                    from ..state.attachments import extract_attachment_summaries
+
+                    child_attachment_summaries = extract_attachment_summaries(
+                        source,
+                        text=str(message or ""),
+                    )
+                except Exception:
+                    _logger.debug("HLS: child attachment summary extraction failed", exc_info=True)
                 ctx = {
                     "message_id": event_message_id,
                     "chat_id": ctx.get("chat_id", ""),
                     "anchor_id": ctx.get("anchor_id"),
+                    "thread_id": child_thread_id,
+                    "attachment_summaries": child_attachment_summaries,
                     "event_message_id": event_message_id,
                     "card_sent": False,
                     "_msg_start_time": time.monotonic(),
@@ -372,6 +401,8 @@ def _wrap_run_agent(orig: Callable) -> Callable:
                         new_message_id=event_message_id,
                         chat_id=ctx["chat_id"],
                         anchor_id=event_message_id,
+                        thread_id=child_thread_id,
+                        attachment_summaries=child_attachment_summaries,
                     )
                 except Exception:
                     _logger.debug("run_agent: interrupt hook failed", exc_info=True)
@@ -383,11 +414,17 @@ def _wrap_run_agent(orig: Callable) -> Callable:
                         message_id=event_message_id,
                         chat_id=ctx["chat_id"],
                         anchor_id=event_message_id,
+                        thread_id=child_thread_id,
+                        attachment_summaries=child_attachment_summaries,
                     )
                 except Exception:
                     _logger.warning("HLS: suppressed exception", exc_info=True)
             else:
                 ctx["event_message_id"] = event_message_id
+                if "thread_id" not in ctx:
+                    ctx["thread_id"] = getattr(source, "thread_id", None) or None
+                if "attachment_summaries" not in ctx:
+                    ctx["attachment_summaries"] = []
             # Copy to thread-local for thread-pool workers
             _thread_local_ctx.data = dict(ctx)
 

@@ -49,6 +49,7 @@ class CardSession:
         "_streaming_closed",
         "_was_aborted",
         "anchor_id",
+        "attachment_summaries",
         "card_created_at",
         "card_id",
         "card_msg_id",
@@ -71,6 +72,7 @@ class CardSession:
         "terminal_reason",
         "terminal_source",
         "text",
+        "thread_id",
         "tool_use",
         "unified_state",
         "use_cardkit",
@@ -81,10 +83,14 @@ class CardSession:
         message_id: str,
         chat_id: str,
         loop: asyncio.AbstractEventLoop,
+        thread_id: str | None = None,
+        attachment_summaries: list[dict[str, str]] | None = None,
     ) -> None:
         self.message_id = message_id
         self.anchor_id: str | None = None
         self.chat_id = chat_id
+        self.thread_id: str | None = thread_id or None
+        self.attachment_summaries: list[dict[str, str]] = list(attachment_summaries or [])
         self.state: str = IDLE
         self.card_msg_id: str | None = None
         self.card_id: str | None = None

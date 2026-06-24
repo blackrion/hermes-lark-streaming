@@ -235,12 +235,25 @@ class Config:
 
     @property
     def header_enabled(self) -> bool:
-        """流式卡片和完成态卡片是否显示 header."""
+        """流式卡片和完成态卡片是否显示 header.
+
+        UI 重设计后默认启用彩色 header；若插件配置中显式写入
+        ``hermes_lark_streaming.header.enabled`` 则以插件配置为准，
+        否则兼容读取 Hermes 顶层 ``streaming.header.enabled``。
+        """
         sec = self._plugin_sec()
         header = sec.get("header", {})
-        if not isinstance(header, dict):
-            return False
-        return bool(header.get("enabled", False))
+        if isinstance(header, dict) and "enabled" in header:
+            return _to_bool(header.get("enabled"), default=True)
+
+        raw = self._load()
+        streaming = raw.get("streaming", {})
+        if isinstance(streaming, dict):
+            streaming_header = streaming.get("header", {})
+            if isinstance(streaming_header, dict) and "enabled" in streaming_header:
+                return _to_bool(streaming_header.get("enabled"), default=True)
+
+        return True
 
     @property
     def reaction_on_complete(self) -> str:

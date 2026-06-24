@@ -297,12 +297,28 @@ class FeishuClient:
             return str(resp.data.message_id)
         raise FeishuAPIError("send_card_to_chat: response missing message_id")
 
-    async def reply_card(self, message_id: str, card: dict[str, Any]) -> str:
-        """回复消息，返回 message_id."""
+    async def reply_card(
+        self,
+        message_id: str,
+        card: dict[str, Any],
+        *,
+        reply_in_thread: bool = False,
+    ) -> str:
+        """回复消息，返回 message_id.
+
+        reply_in_thread=True 时使用飞书话题回复语义；默认保持普通引用回复。
+        """
+        body_builder = (
+            ReplyMessageRequestBody.builder()
+            .msg_type("interactive")
+            .content(self._dumps(card))
+        )
+        if reply_in_thread:
+            body_builder = body_builder.reply_in_thread(True)
         request = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
-            .request_body(ReplyMessageRequestBody.builder().msg_type("interactive").content(self._dumps(card)).build())
+            .request_body(body_builder.build())
             .build()
         )
         resp = await self._client.im.v1.message.areply(request)
@@ -311,17 +327,25 @@ class FeishuClient:
             return str(resp.data.message_id)
         raise FeishuAPIError("reply_card: response missing message_id")
 
-    async def reply_text(self, message_id: str, text: str) -> str:
+    async def reply_text(
+        self,
+        message_id: str,
+        text: str,
+        *,
+        reply_in_thread: bool = False,
+    ) -> str:
         """回复纯文本消息，返回 message_id."""
+        body_builder = (
+            ReplyMessageRequestBody.builder()
+            .msg_type("text")
+            .content(self._dumps({"text": text}))
+        )
+        if reply_in_thread:
+            body_builder = body_builder.reply_in_thread(True)
         request = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
-            .request_body(
-                ReplyMessageRequestBody.builder()
-                .msg_type("text")
-                .content(self._dumps({"text": text}))
-                .build()
-            )
+            .request_body(body_builder.build())
             .build()
         )
         resp = await self._client.im.v1.message.areply(request)
@@ -341,29 +365,14 @@ class FeishuClient:
         当用户在飞书 thread/话题中发消息时，初始卡片应使用
         reply API 回到同一 thread，保持话题上下文.
         """
-        request = (
-            ReplyMessageRequest.builder()
-            .message_id(message_id)
-            .request_body(
-                ReplyMessageRequestBody.builder()
-                .msg_type("interactive")
-                .content(self._dumps(card))
-                .build()
-            )
-            .build()
-        )
-        resp = await self._client.im.v1.message.areply(request)
-        self._check(resp, "reply_card_in_thread")
-        if resp.data and resp.data.message_id:
-            return str(resp.data.message_id)
-        raise FeishuAPIError("reply_card_in_thread: response missing message_id")
+        return await self.reply_card(message_id, card, reply_in_thread=True)
 
     async def add_reaction(
         self,
         message_id: str,
         emoji_type: str = "DONE",
-    ) -> None:
-        """给消息添加 emoji 表情回应.
+    ) -> bool:
+        """给消息添加 emoji 表情回应，返回是否添加成功.
 
         吸收自 Gawg-AI/hermes-feishu：发卡后自动添加表情回应（如 ✅）.
 
@@ -386,20 +395,30 @@ class FeishuClient:
             )
             resp = await self._client.im.v1.message_reaction.acreate(request)
             self._check(resp, "add_reaction")
+            return True
         except Exception:
             _logger.debug("add_reaction failed for %s", message_id, exc_info=True)
+            return False
 
-    async def reply_card_by_id(self, message_id: str, card_id: str) -> str:
+    async def reply_card_by_id(
+        self,
+        message_id: str,
+        card_id: str,
+        *,
+        reply_in_thread: bool = False,
+    ) -> str:
         """通过 card_id 回复 CardKit 卡片消息，返回 message_id."""
+        body_builder = (
+            ReplyMessageRequestBody.builder()
+            .msg_type("interactive")
+            .content(self._dumps({"type": "card", "data": {"card_id": card_id}}))
+        )
+        if reply_in_thread:
+            body_builder = body_builder.reply_in_thread(True)
         request = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
-            .request_body(
-                ReplyMessageRequestBody.builder()
-                .msg_type("interactive")
-                .content(self._dumps({"type": "card", "data": {"card_id": card_id}}))
-                .build()
-            )
+            .request_body(body_builder.build())
             .build()
         )
         resp = await self._client.im.v1.message.areply(request)

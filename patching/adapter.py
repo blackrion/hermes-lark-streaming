@@ -546,11 +546,17 @@ def _wrap_feishu_adapter_send_clarify(orig_send_clarify: Callable) -> Callable:
 
             # Send the card via FeishuClient
             reply_to = None
+            thread_id = None
             if metadata and isinstance(metadata, dict):
                 reply_to = metadata.get("reply_to") or metadata.get("message_id")
+                thread_id = metadata.get("thread_id") or None
 
             if reply_to:
-                card_msg_id = await ctrl._client.reply_card(reply_to, card)
+                card_msg_id = await ctrl._client.reply_card(
+                    reply_to,
+                    card,
+                    reply_in_thread=bool(thread_id),
+                )
             else:
                 card_msg_id = await ctrl._client.send_card_to_chat(chat_id, card)
 

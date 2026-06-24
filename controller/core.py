@@ -129,6 +129,8 @@ class StreamCardController(ControllerMixin, UnifiedControllerMixin):
         message_id: str | None,
         chat_id: str,
         anchor_id: str | None = None,
+        thread_id: str | None = None,
+        attachment_summaries: list[dict[str, str]] | None = None,
     ) -> None:
         """消息处理开始 — 创建会话 + 发占位卡片.
 
@@ -174,6 +176,8 @@ class StreamCardController(ControllerMixin, UnifiedControllerMixin):
                     new_message_id=message_id,
                     chat_id=chat_id,
                     anchor_id=anchor_id,
+                    thread_id=thread_id,
+                    attachment_summaries=attachment_summaries,
                 )
             except Exception:
                 _logger.warning("HLS: concurrency seal failed", exc_info=True)
@@ -182,7 +186,13 @@ class StreamCardController(ControllerMixin, UnifiedControllerMixin):
         if loop is None:
             _logger.warning("HLS: no event loop, skipping msg=%s", (message_id or "?")[:12])
             return
-        session = CardSession(message_id, chat_id, loop)
+        session = CardSession(
+            message_id,
+            chat_id,
+            loop,
+            thread_id=thread_id,
+            attachment_summaries=attachment_summaries,
+        )
         self._sessions[message_id] = session
         if anchor_id and anchor_id != message_id:
             session.anchor_id = anchor_id
@@ -379,6 +389,8 @@ class StreamCardController(ControllerMixin, UnifiedControllerMixin):
         new_message_id: str,
         chat_id: str,
         anchor_id: str | None = None,
+        thread_id: str | None = None,
+        attachment_summaries: list[dict[str, str]] | None = None,
     ) -> None:
         """用户发送新消息导致前一条消息被中断 — abort A + create B.
 
@@ -461,7 +473,16 @@ class StreamCardController(ControllerMixin, UnifiedControllerMixin):
             loop = self._get_loop()
             if loop is not None:
                 reply_anchor_id = anchor_id if anchor_id and anchor_id != new_message_id else None
-                session = CardSession(new_message_id, chat_id, loop)
+                inherited_thread_id = thread_id
+                if inherited_thread_id is None and old_session is not None:
+                    inherited_thread_id = old_session.thread_id
+                session = CardSession(
+                    new_message_id,
+                    chat_id,
+                    loop,
+                    thread_id=inherited_thread_id,
+                    attachment_summaries=attachment_summaries,
+                )
                 session.anchor_id = reply_anchor_id
                 self._sessions[new_message_id] = session
                 if reply_anchor_id:
