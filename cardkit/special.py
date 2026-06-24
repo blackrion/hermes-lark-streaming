@@ -25,6 +25,7 @@ __all__ = [
     'build_clarify_submitted_card',
     'build_clarify_confirmed_card',
     'build_approval_card',
+    'build_approval_resolved_card',
 ]
 
 
@@ -273,25 +274,34 @@ def build_clarify_card(
 def build_approval_card(
     *,
     tool_name: str = "",
+    command: str = "",
     description: str = "",
     approval_id: str = "",
 ) -> dict[str, Any]:
-    """构建 Authorization/Approval 请求卡片（吸收自 baileyh8）.
+    """构建 Authorization/Approval 请求卡片 (CardKit 2.0).
 
-    四按钮设计：
-      ✅ 允许一次  — 仅本次执行
-      🔁 本会话允许 — 当前会话内自动批准
-      ⭐ 始终允许   — 永久加入白名单
-      ❌ 拒绝       — 拒绝执行（danger 样式）
+    Ported from openclaw-lark ``buildConfirmCard()`` (MIT, ByteDance) and
+    adapted to Hermes' four-button approval flow.
+
+    Design:
+      - Colored header: shield_color icon + tool/command name
+      - Command preview: fenced code block (truncated to 3000 chars)
+      - Description: markdown body with reason/context
+      - Four approval buttons in a 2×2 column grid:
+          ✅ Allow Once   — approve this single execution
+          🔁 This Session — auto-approve within current session
+          ⭐ Always       — permanently whitelist
+          ❌ Deny          — reject (danger style)
 
     Args:
-        tool_name: 请求授权的工具名称.
-        description: 授权描述/理由.
-        approval_id: 唯一标识，用于回调路由.
+        tool_name: Tool or command name requesting authorization.
+        command: Full command text for preview (truncated to 3000 chars).
+        description: Authorization description/reason.
+        approval_id: Unique ID for callback routing.
     """
     elements: list[dict[str, Any]] = []
 
-    # ── 标题 ──
+    # ── Title with shield icon ──
     title_text = f"🔐 **{tool_name}**" if tool_name else "🔐 **Authorization Required**"
     elements.append({
         "tag": "div",
@@ -307,13 +317,27 @@ def build_approval_card(
         },
     })
 
+    # ── Command preview in code block (inspired by openclaw-lark ConfirmData.preview) ──
+    if command.strip():
+        cmd_preview = command[:3000]
+        if len(command) > 3000:
+            cmd_preview += "..."
+        elements.append({
+            "tag": "markdown",
+            "content": "```\n" + cmd_preview + "\n```",
+        })
+
+    # ── Description / reason ──
     if description:
         elements.append({
             "tag": "markdown",
-            "content": description,
+            "content": f"**Reason:** {description}",
         })
 
-    # ── 四按钮布局 ──
+    # ── Separator before buttons ──
+    elements.append({"tag": "hr"})
+
+    # ── Four-button grid (2×2 column layout) ──
     def _button(text: str, btn_type: str, value: dict[str, Any]) -> dict[str, Any]:
         return {
             "tag": "button",
@@ -333,7 +357,7 @@ def build_approval_card(
                 "weight": 1,
                 "elements": [
                     _button(
-                        "✅ 允许一次",
+                        "✅ Allow Once",
                         "primary",
                         {**callback_value, "hermes_action": "approve_once"},
                     ),
@@ -345,7 +369,7 @@ def build_approval_card(
                 "weight": 1,
                 "elements": [
                     _button(
-                        "🔁 本会话",
+                        "🔁 This Session",
                         "default",
                         {**callback_value, "hermes_action": "approve_session"},
                     ),
@@ -363,7 +387,7 @@ def build_approval_card(
                 "weight": 1,
                 "elements": [
                     _button(
-                        "⭐ 始终允许",
+                        "⭐ Always",
                         "default",
                         {**callback_value, "hermes_action": "approve_always"},
                     ),
@@ -375,7 +399,7 @@ def build_approval_card(
                 "weight": 1,
                 "elements": [
                     _button(
-                        "❌ 拒绝",
+                        "❌ Deny",
                         "danger",
                         {**callback_value, "hermes_action": "deny"},
                     ),
@@ -384,7 +408,7 @@ def build_approval_card(
         ],
     })
 
-    summary_text = tool_name or description or "Authorization required"
+    summary_text = tool_name or command[:80] or description or "Authorization required"
     return {
         "schema": "2.0",
         "config": {
@@ -399,6 +423,82 @@ def build_approval_card(
         ),
         "body": {"elements": elements},
     }
+
+
+def build_approval_resolved_card(
+    *,
+    choice: str,
+    user_name: str = "",
+    tool_name: str = "",
+) -> dict[str, Any]:
+    """构建 Approval 已决态卡片 (CardKit 2.0) — resolved terminal state.
+
+    Replaces Hermes' native Card 1.0 ``_build_resolved_approval_card``
+    with a styled CardKit 2.0 card for visual consistency.
+
+    Args:
+        choice: One of "once", "session", "always", "deny".
+        user_name: Name of the user who clicked the button.
+        tool_name: Original tool/command name (for context).
+    """
+    is_deny = choice == "deny"
+    icon = "❌" if is_deny else "✅"
+    label_map = {
+        "once": ("Approved Once", "已允许一次"),
+        "session": ("Approved for Session", "本会话已允许"),
+        "always": ("Approved Permanently", "已永久允许"),
+        "deny": ("Denied", "已拒绝"),
+    }
+    en_label, zh_label = label_map.get(choice, ("Resolved", "已处理"))
+
+    header_status = "error" if is_deny else "completed"
+
+    elements: list[dict[str, Any]] = [
+        {
+            "tag": "div",
+            "icon": {
+                "tag": "standard_icon",
+                "token": "close_color" if is_deny else "check_circle_color",
+                "size": "20px 20px",
+                "color": "red" if is_deny else "green",
+            },
+            "text": {
+                "tag": "lark_md",
+                "content": f"{icon} **{en_label}**",
+                "i18n_content": _i18n(
+                    f"{icon} **{en_label}**",
+                    f"{icon} **{zh_label}**",
+                ),
+            },
+        },
+    ]
+
+    if user_name:
+        elements.append({
+            "tag": "markdown",
+            "content": f"by **{user_name}**",
+        })
+
+    if tool_name:
+        elements.append({
+            "tag": "markdown",
+            "content": f"`{tool_name}`",
+        })
+
+    return {
+        "schema": "2.0",
+        "config": {
+            "streaming_mode": False,
+            "locales": _LOCALES,
+            "summary": _summary(f"{icon} {en_label}"),
+        },
+        "header": _build_header(
+            header_status,
+            title=(f"{icon} {en_label}", f"{icon} {zh_label}"),
+        ),
+        "body": {"elements": elements},
+    }
+
 
 def build_clarify_submitted_card(
     *,

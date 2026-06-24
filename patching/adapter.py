@@ -1020,3 +1020,151 @@ def _handle_clarify_card_action(
 
     _logger.debug("clarify card: unknown action '%s', ignoring", clarify_action)
     return _empty_response()
+
+
+# ── Approval interactive card registry ──────────────────────────────────
+# Stores the tool_name for each approval_id so the resolved card callback
+# can include context about what was approved.
+_approval_tool_names: dict[int, str] = {}  # approval_id → tool_name
+
+
+def _wrap_feishu_adapter_send_exec_approval(orig_send_exec_approval: Callable) -> Callable:
+    """Intercept ``FeishuAdapter.send_exec_approval()`` — render CardKit 2.0 card.
+
+    Instead of the default Card 1.0 plain card, we build a CardKit 2.0
+    interactive card with:
+      - A styled header with shield icon
+      - Command preview in a fenced code block
+      - Four approval buttons (Allow Once / This Session / Always / Deny)
+      - Callback behaviors that route to Hermes' native approval handler
+
+    The approval_id and _approval_state are still managed by Hermes'
+    native ``_on_card_action_trigger`` → ``_handle_approval_card_action``
+    flow — we only upgrade the card visual.
+
+    When the card can't be sent (controller disabled, API error), falls
+    back to the original Card 1.0 send_exec_approval.
+    """
+
+    async def _intercepted_send_exec_approval(
+        self_feishu, chat_id, command, session_key,
+        description="dangerous command", metadata=None, **kwargs
+    ):
+        _logger.info(
+            "approval card: send_exec_approval intercepted chat=%s command=%r session=%s",
+            (chat_id or "?")[:12],
+            command[:80] if command else "",
+            (session_key or "?")[:12],
+        )
+
+        try:
+            from ..controller import get_controller
+            ctrl = get_controller()
+            if not ctrl or not ctrl.enabled or not ctrl._client_ok():
+                _logger.debug("approval card: controller not available, falling back to Card 1.0")
+                return await orig_send_exec_approval(
+                    self_feishu, chat_id, command, session_key,
+                    description=description, metadata=metadata, **kwargs
+                )
+
+            # Generate approval_id the same way Hermes does
+            approval_id = next(self_feishu._approval_counter)
+
+            from ..cardkit import build_approval_card
+
+            # Derive tool_name from command (first token or full command if short)
+            tool_name = command.split()[0] if command and command.strip() else ""
+
+            card = build_approval_card(
+                tool_name=tool_name,
+                command=command,
+                description=description,
+                approval_id=approval_id,
+            )
+
+            # Store tool_name for resolved card callback
+            _approval_tool_names[approval_id] = tool_name
+
+            # Send the card via FeishuClient
+            reply_to = None
+            thread_id = None
+            if metadata and isinstance(metadata, dict):
+                reply_to = metadata.get("reply_to") or metadata.get("message_id")
+                thread_id = metadata.get("thread_id") or None
+
+            if reply_to:
+                card_msg_id = await ctrl._client.reply_card(
+                    reply_to,
+                    card,
+                    reply_in_thread=bool(thread_id),
+                )
+            else:
+                card_msg_id = await ctrl._client.send_card_to_chat(chat_id, card)
+
+            _logger.info(
+                "approval card: card sent successfully, approval_id=%s card_msg_id=%s",
+                approval_id,
+                (card_msg_id or "?")[:12],
+            )
+
+            # Register the card in gateway card registry
+            if card_msg_id:
+                _register_gateway_card(card_msg_id, chat_id=chat_id, card_id=None, category="approval")
+
+            # Store approval state the same way Hermes does
+            self_feishu._approval_state[approval_id] = {
+                "session_key": session_key,
+                "message_id": card_msg_id or "",
+                "chat_id": chat_id,
+            }
+
+            try:
+                from gateway.platforms.base import SendResult
+                return SendResult(success=True, message_id=card_msg_id)
+            except (ImportError, AttributeError):
+                return None
+
+        except Exception as e:
+            _logger.warning(
+                "approval card: failed to send CardKit 2.0 card, falling back to Card 1.0: %s",
+                e,
+                exc_info=True,
+            )
+            return await orig_send_exec_approval(
+                self_feishu, chat_id, command, session_key,
+                description=description, metadata=metadata, **kwargs
+            )
+
+    return _intercepted_send_exec_approval
+
+
+def _wrap_feishu_adapter_build_resolved_approval(original_method: Callable) -> Callable:
+    """Wrap ``FeishuAdapter._build_resolved_approval_card`` — return CardKit 2.0.
+
+    When Hermes resolves an approval (user clicked a button), it builds a
+    Card 1.0 resolved card for the CallBackCard response. We replace this
+    with a CardKit 2.0 resolved card for visual consistency with the
+    initial approval card.
+    """
+
+    def _wrapped(*, choice: str, user_name: str, **kwargs):
+        try:
+            from ..cardkit import build_approval_resolved_card
+
+            # Try to get tool_name from our registry (best-effort)
+            tool_name = ""
+            # tool_name is not available here since we don't have approval_id
+            # in the call signature, but the resolved card looks good without it
+
+            return build_approval_resolved_card(
+                choice=choice,
+                user_name=user_name,
+                tool_name=tool_name,
+            )
+        except Exception as e:
+            _logger.debug(
+                "approval card: build_resolved_approval fallback to original (%s)", e
+            )
+            return original_method(choice=choice, user_name=user_name)
+
+    return _wrapped

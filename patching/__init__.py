@@ -94,6 +94,9 @@ __all__ = [
     '_clarify_selections',
     '_clarify_answers',
     '_clarify_card_info',
+    '_wrap_feishu_adapter_send_exec_approval',
+    '_wrap_feishu_adapter_build_resolved_approval',
+    '_approval_tool_names',
     # From hooks
     'on_feishu_normalize',
     'on_message_started',
@@ -212,6 +215,9 @@ from .adapter import (  # noqa: E402
     _clarify_selections,
     _clarify_answers,
     _clarify_card_info,
+    _wrap_feishu_adapter_send_exec_approval,
+    _wrap_feishu_adapter_build_resolved_approval,
+    _approval_tool_names,
 )
 from .hooks import (  # noqa: E402
     on_feishu_normalize,
@@ -484,6 +490,26 @@ def apply_patches() -> None:
                 _logger.info("hermes-lark-streaming: FeishuAdapter._on_card_action_trigger patched ✓ (clarify card callback)")
             except AttributeError:
                 _logger.debug("hermes-lark-streaming: FeishuAdapter._on_card_action_trigger not found, clarify callback skipped")
+
+            # ── Approval interactive card patches ──
+            # Patch send_exec_approval to render CardKit 2.0 cards instead of
+            # the default Card 1.0 plain cards.  Also patch
+            # _build_resolved_approval_card to return CardKit 2.0 for the
+            # callback response when a user clicks an approval button.
+            approval_patched = False
+            try:
+                FeishuAdapter.send_exec_approval = _wrap_feishu_adapter_send_exec_approval(FeishuAdapter.send_exec_approval)
+                approval_patched = True
+                _logger.info("hermes-lark-streaming: FeishuAdapter.send_exec_approval patched ✓ (approval CardKit 2.0 card)")
+            except AttributeError:
+                _logger.debug("hermes-lark-streaming: FeishuAdapter.send_exec_approval not found, approval card skipped")
+            try:
+                FeishuAdapter._build_resolved_approval_card = _wrap_feishu_adapter_build_resolved_approval(
+                    FeishuAdapter._build_resolved_approval_card
+                )
+                _logger.info("hermes-lark-streaming: FeishuAdapter._build_resolved_approval_card patched ✓ (approval resolved CardKit 2.0)")
+            except AttributeError:
+                _logger.debug("hermes-lark-streaming: FeishuAdapter._build_resolved_approval_card not found, resolved approval card skipped")
 
             feishu_patched = True
             _logger.info("hermes-lark-streaming: FeishuAdapter.send/edit/reaction/image/clarify patched ✓ (gateway message cards enabled)")

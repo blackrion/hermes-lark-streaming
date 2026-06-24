@@ -838,12 +838,10 @@ class TestDoLinearComplete:
 
         assert await ctrl._do_linear_complete(session) is True
         assert session.state == COMPLETED
-        # With preservative seal, the flow is: close + batch_update
-        # (summary is passed IN close_streaming, no separate cardkit_update needed)
+        # With preservative seal, the flow is: close + batch_update + cardkit_update (header)
         assert "close" in call_order
-        # cardkit_update should NOT be called — summary is updated atomically
-        # in close_streaming per Feishu docs
-        client.cardkit_update.assert_not_called()
+        # cardkit_update IS called now — to update the card header to completed state
+        assert "update" in call_order
 
     @pytest.mark.asyncio
     async def test_streaming_closed_flag_prevents_double_close(self) -> None:
@@ -860,9 +858,8 @@ class TestDoLinearComplete:
 
         assert await ctrl._do_linear_complete(session) is True
         assert client.cardkit_close_streaming.call_count == 1
-        # cardkit_update should NOT be called — summary is passed in
-        # close_streaming atomically per Feishu docs
-        client.cardkit_update.assert_not_called()
+        # cardkit_update IS called now — to update the card header to completed state
+        client.cardkit_update.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_three_retries_exhausted(self) -> None:

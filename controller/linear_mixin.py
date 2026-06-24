@@ -1266,6 +1266,51 @@ class UnifiedControllerMixin:
                     card_id, sequence=session.sequence, summary=seal_summary,
                 )
                 session._streaming_closed = True
+
+                # ── Step 5: Update card header to completed state ──
+                # close_streaming only toggles streaming_mode; it does NOT
+                # update the card header (which still shows "思考中 · 实时回复").
+                # We use cardkit_update with a complete card JSON to update
+                # the header to "已完成" (green).  This is done AFTER
+                # close_streaming to avoid interfering with the streaming
+                # transition, and uses the same content that was already
+                # flushed via batch_update — so there's no visible flicker.
+                if self._cfg.header_enabled:
+                    try:
+                        complete_card = build_unified_complete_card(
+                            reasoning_rounds=state.reasoning_rounds if state else [],
+                            current_reasoning_text="",
+                            tool_steps=session.tool_use.build_display_steps(),
+                            tool_elapsed_ms=session.tool_use.elapsed_ms,
+                            answer_text=state.answer_text if state else "",
+                            show_reasoning=self._cfg.show_reasoning,
+                            footer_data=footer_data,
+                            is_error=is_error,
+                            is_aborted=is_aborted,
+                            error_message=error_message,
+                            footer_fields=footer_fields,
+                            footer_show_label=footer_show_label,
+                            panel_expanded=self._cfg.panel_expanded,
+                            header_enabled=True,
+                            panel_events=state.panel_events if state else None,
+                            max_tool_steps=self._cfg.max_tool_steps,
+                            max_reasoning_rounds=self._cfg.max_reasoning_rounds,
+                            enable_native_tables=self._cfg.enable_native_tables,
+                        )
+                        session.sequence += 1
+                        await self._client.cardkit_update(
+                            card_id, complete_card, sequence=session.sequence,
+                        )
+                        _logger.info(
+                            "HLS: preservative seal header update OK card=%s seq=%d",
+                            card_id[:12], session.sequence,
+                        )
+                    except FeishuAPIError as e:
+                        _logger.warning(
+                            "HLS: preservative seal header update failed card=%s error=%s",
+                            card_id[:12], e,
+                        )
+                        # Non-fatal — content and footer are already in place.
             else:
                 _logger.info(
                     "preservative seal: streaming already closed, skipping close_streaming card=%s",

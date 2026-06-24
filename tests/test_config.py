@@ -41,7 +41,8 @@ class TestEnabled:
 
 
 class TestFooterFields:
-    _DEFAULT_FIELDS = [["status", "elapsed", "model", "cost", "compression_exhausted"]]
+    # Two-line layout (matches _default_footer_fields in config/reader.py)
+    _DEFAULT_FIELDS = [["status", "elapsed", "model"], ["tokens", "cache", "context", "cost", "compression_exhausted"]]
 
     def test_normal_2d_fields(self) -> None:
         cfg = _make_config({"hermes_lark_streaming": {"footer": {"fields": [["a", "b"], ["c"]]}}})

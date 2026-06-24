@@ -930,7 +930,10 @@ def _build_footer_elements(
     show_label: bool = False,
 ) -> list[dict]:
     if fields is None:
-        fields = [["status", "elapsed", "context", "model"]]
+        fields = [
+            ["status", "elapsed", "model"],
+            ["tokens", "cache", "context", "cost"],
+        ]
 
     data = footer_data or {}
     en_lines: list[str] = []

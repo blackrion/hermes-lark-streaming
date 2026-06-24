@@ -286,7 +286,13 @@ class Config:
 
     @staticmethod
     def _default_footer_fields() -> list[list[str]]:
-        return [["status", "elapsed", "model", "cost", "compression_exhausted"]]
+        # Two-line layout:
+        # Line 1 (primary): status · elapsed · model
+        # Line 2 (detail):  tokens · cache · context · cost
+        return [
+            ["status", "elapsed", "model"],
+            ["tokens", "cache", "context", "cost", "compression_exhausted"],
+        ]
 
     @property
     def env_app_id(self) -> str:
