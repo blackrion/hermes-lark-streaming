@@ -1147,19 +1147,25 @@ def _wrap_feishu_adapter_build_resolved_approval(original_method: Callable) -> C
     initial approval card.
     """
 
-    def _wrapped(*, choice: str, user_name: str, **kwargs):
+    def _wrapped(*args, **kwargs):
+        """Build CardKit 2.0 resolved approval card.
+
+        The original is a @staticmethod called as::
+            self._build_resolved_approval_card(choice=choice, user_name=user_name)
+
+        Since we replace it with a regular function (not staticmethod),
+        Python passes ``self`` as the first positional argument.
+        We absorb it with *args and extract choice/user_name from kwargs.
+        """
+        choice = kwargs.get("choice", "")
+        user_name = kwargs.get("user_name", "")
         try:
             from ..cardkit import build_approval_resolved_card
-
-            # Try to get tool_name from our registry (best-effort)
-            tool_name = ""
-            # tool_name is not available here since we don't have approval_id
-            # in the call signature, but the resolved card looks good without it
 
             return build_approval_resolved_card(
                 choice=choice,
                 user_name=user_name,
-                tool_name=tool_name,
+                tool_name="",
             )
         except Exception as e:
             _logger.debug(
