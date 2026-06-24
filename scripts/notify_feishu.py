@@ -170,7 +170,7 @@ try:
 except Exception:
     pass
 
-# Gitee MR 合并去重
+# MR/PR 合并去重
 import re as _re
 
 def _strip_mr_prefix(msg: str) -> str:

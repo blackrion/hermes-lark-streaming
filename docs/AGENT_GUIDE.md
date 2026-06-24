@@ -5,32 +5,26 @@
 
 ## 快速概览
 
-| 项目 | 值 |
-|------|-------|
-| 名称 | hermes-lark-streaming (飞书敖式卡片) |
-| 许可证 | MIT |
-| Python | >=3.11 |
-| 依赖 | lark-oapi>=1.4.0, PyYAML>=6.0 |
-| 插件类型 | standalone |
-| Gitee | https://gitee.com/Aowen-Nowor/hermes-lark-streaming |
-| GitHub | https://github.com/Aowen-Nowor/hermes-lark-streaming |
+| 项目            | 值                                                   |
+| --------------- | ---------------------------------------------------- |
+| 名称            | hermes-lark-streaming (飞书敖式卡片)                 |
+| 许可证          | MIT                                                  |
+| Python          | >=3.11                                               |
+| 依赖            | lark-oapi>=1.4.0, PyYAML>=6.0                        |
+| 插件类型        | standalone                                           |
+| GitHub          | https://github.com/blackrion/hermes-lark-streaming   |
+| 上游 (upstream) | https://github.com/Aowen-Nowor/hermes-lark-streaming |
 
 ## 手动安装
 
 ### 方式一：Hermes CLI（推荐）
 
 ```bash
-# Gitee (SSH)
-hermes plugins install git@gitee.com:Aowen-Nowor/hermes-lark-streaming.git
-
-# Gitee (HTTPS)
-hermes plugins install https://gitee.com/Aowen-Nowor/hermes-lark-streaming
-
 # GitHub (SSH)
-hermes plugins install git@github.com:Aowen-Nowor/hermes-lark-streaming.git
+hermes plugins install git@github.com:blackrion/hermes-lark-streaming.git
 
 # GitHub (HTTPS)
-hermes plugins install https://github.com/Aowen-Nowor/hermes-lark-streaming
+hermes plugins install https://github.com/blackrion/hermes-lark-streaming
 ```
 
 提示时输入 `Y` 启用插件，然后重启网关：
@@ -42,7 +36,7 @@ hermes gateway restart
 ### 方式二：本地目录
 
 ```bash
-git clone https://gitee.com/Aowen-Nowor/hermes-lark-streaming.git
+git clone https://github.com/blackrion/hermes-lark-streaming.git
 cd hermes-lark-streaming
 hermes plugins add .
 hermes gateway restart
@@ -118,27 +112,27 @@ feishu:
 
 ### hermes_lark_streaming 节
 
-| 配置键 | 默认值 | 范围 | 说明 |
-|--------|---------|------|------|
-| `enabled` | `true` | bool | 启用/禁用流式卡片输出 |
-| `linear` | `true` | bool | 线性模式：单卡片原地更新（统一面板架构） |
-| `max_tool_steps` | `20` | 1–100 | 统一面板中工具步骤最大数量（超限折叠） |
-| `max_reasoning_rounds` | `20` | 1–100 | 统一面板中推理轮次最大数量（超限折叠） |
-| `card_ttl_sec` | `600` | >0 | 会话 TTL（秒），超时卡片失效 |
-| `flush_interval_ms` | `100` | 70–2000 | 卡片刷新间隔（毫秒） |
-| `inject_time` | `false` | bool | 时间感知模式，自动注入当前时间。Hermes v0.17.0+ 建议用官方 `gateway.message_timestamps.enabled` 代替 |
-| `print_strategy` | `delay` | `fast`/`delay` | 打字机效果策略 |
-| `panel_expanded` | `false` | bool | 完成态卡片面板是否展开 |
-| `streaming_panel_expanded` | `false` | bool | 流式态卡片面板是否展开 |
-| `footer.show_label` | `false` | bool | 是否显示页脚字段标签 |
-| `footer.fields` | `[[status, elapsed, model, cost, compression_exhausted]]` | array | 页脚字段配置 |
+| 配置键                     | 默认值                                                    | 范围           | 说明                                                                                                 |
+| -------------------------- | --------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| `enabled`                  | `true`                                                    | bool           | 启用/禁用流式卡片输出                                                                                |
+| `linear`                   | `true`                                                    | bool           | 线性模式：单卡片原地更新（统一面板架构）                                                             |
+| `max_tool_steps`           | `20`                                                      | 1–100          | 统一面板中工具步骤最大数量（超限折叠）                                                               |
+| `max_reasoning_rounds`     | `20`                                                      | 1–100          | 统一面板中推理轮次最大数量（超限折叠）                                                               |
+| `card_ttl_sec`             | `600`                                                     | >0             | 会话 TTL（秒），超时卡片失效                                                                         |
+| `flush_interval_ms`        | `100`                                                     | 70–2000        | 卡片刷新间隔（毫秒）                                                                                 |
+| `inject_time`              | `false`                                                   | bool           | 时间感知模式，自动注入当前时间。Hermes v0.17.0+ 建议用官方 `gateway.message_timestamps.enabled` 代替 |
+| `print_strategy`           | `delay`                                                   | `fast`/`delay` | 打字机效果策略                                                                                       |
+| `panel_expanded`           | `false`                                                   | bool           | 完成态卡片面板是否展开                                                                               |
+| `streaming_panel_expanded` | `false`                                                   | bool           | 流式态卡片面板是否展开                                                                               |
+| `footer.show_label`        | `false`                                                   | bool           | 是否显示页脚字段标签                                                                                 |
+| `footer.fields`            | `[[status, elapsed, model, cost, compression_exhausted]]` | array          | 页脚字段配置                                                                                         |
 
 ### display 节（Hermes 全局配置，非 hermes_lark_streaming 节）
 
-| 配置键 | 默认值 | 说明 |
-|--------|---------|------|
-| `display.show_reasoning` | `false` | 是否展示推理/思考面板（全局，影响所有平台） |
-| `display.platforms.feishu.show_reasoning` | — | 飞书平台专属推理显示开关（优先于全局） |
+| 配置键                                    | 默认值  | 说明                                        |
+| ----------------------------------------- | ------- | ------------------------------------------- |
+| `display.show_reasoning`                  | `false` | 是否展示推理/思考面板（全局，影响所有平台） |
+| `display.platforms.feishu.show_reasoning` | —       | 飞书平台专属推理显示开关（优先于全局）      |
 
 示例配置：
 
@@ -170,14 +164,14 @@ display:
 
 所有 `/aowen` 开头的命令由插件处理，不经过 Hermes AI：
 
-| 命令 | 说明 |
-|------|------|
-| `/aowen help` | 显示所有命令列表 |
-| `/aowen status` | 查看插件状态 + 当前配置（折叠面板展示） |
-| `/aowen monitor` | 查看监控面板（卡片创建数、API 调用数、错误码分布等） |
-| `/aowen monitor reset` | 重置监控统计计数器 |
-| `/aowen config reload` | 修改 config.yaml 后重新加载配置立即生效 |
-| `/aowen` | 同 `/aowen help` |
+| 命令                   | 说明                                                 |
+| ---------------------- | ---------------------------------------------------- |
+| `/aowen help`          | 显示所有命令列表                                     |
+| `/aowen status`        | 查看插件状态 + 当前配置（折叠面板展示）              |
+| `/aowen monitor`       | 查看监控面板（卡片创建数、API 调用数、错误码分布等） |
+| `/aowen monitor reset` | 重置监控统计计数器                                   |
+| `/aowen config reload` | 修改 config.yaml 后重新加载配置立即生效              |
+| `/aowen`               | 同 `/aowen help`                                     |
 
 > **中断场景**：当 AI 正在回复中（agent 运行中）发送 `/aowen` 命令时，插件会回复一张橙色提示卡"AI 正在回复中"（借鉴 Hermes 原生 `/model` 命令的 "Agent is running — wait or /stop first" UX），提示用户等待完成或 `/stop` 后再使用。命令本身不会被发给 AI。
 
@@ -198,15 +192,15 @@ display:
 
 ## 故障排查
 
-| 现象 | 原因 | 解决方案 |
-|------|------|----------|
-| 卡片不显示 | 缺少凭据 | 设置 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET` |
+| 现象          | 原因                   | 解决方案                                       |
+| ------------- | ---------------------- | ---------------------------------------------- |
+| 卡片不显示    | 缺少凭据               | 设置 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`    |
 | 错误码 300305 | 元素超限（硬限制 200） | 减小 `max_tool_steps` / `max_reasoning_rounds` |
-| 错误码 300315 | Schema 校验失败 | 检查飞书 Card 2.0 规范，确认卡片属性合法 |
-| 内容被截断 | 静态卡片表格超限 | 静态卡片（cron/gateway）表格行数 >5 时自动降级 |
-| 流式卡住 | TTL 过期 | 增加 `card_ttl_sec` 值 |
-| 封口失败 | 元素总数超标 | 安全网已自动裁剪早期面板，检查日志确认 |
-| 文本兜底 | 极端超限场景 | 核心内容保留，完整内容降级为纯文本 |
+| 错误码 300315 | Schema 校验失败        | 检查飞书 Card 2.0 规范，确认卡片属性合法       |
+| 内容被截断    | 静态卡片表格超限       | 静态卡片（cron/gateway）表格行数 >5 时自动降级 |
+| 流式卡住      | TTL 过期               | 增加 `card_ttl_sec` 值                         |
+| 封口失败      | 元素总数超标           | 安全网已自动裁剪早期面板，检查日志确认         |
+| 文本兜底      | 极端超限场景           | 核心内容保留，完整内容降级为纯文本             |
 
 ## 验证安装
 
@@ -244,5 +238,5 @@ A: 可忽略，或手动清理 `~/.hermes/config.yaml` 中的相关配置。
 ## 相关链接
 
 - **官方文档**: https://larkcommunity.feishu.cn/wiki/DKkpwgMcJiglIhk88N4cqJEan5f
-- **问题反馈**: https://gitee.com/Aowen-Nowor/hermes-lark-streaming/issues
+- **问题反馈**: https://github.com/blackrion/hermes-lark-streaming/issues
 - **交流群**: [点击加入](https://applink.feishu.cn/client/message/link/open?token=AmoQJk5dwczIahKlW78ADLU%3D)

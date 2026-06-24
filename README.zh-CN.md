@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-<a href="mailto:zhengyu.pu@petalmail.com"><img src="https://img.shields.io/badge/邮箱-zhengyu.pu%40petalmail.com-9C27B0?logo=gmail&logoColor=white" alt="邮箱"></a>
-<a href="https://applink.feishu.cn/client/message/link/open?token=AmoQJk5dwczIahKlW78ADLU%3D"><img src="https://img.shields.io/badge/官方唯一交流群-中国-red" alt="官方交流群"></a>
+<a href="https://github.com/blackrion"><img src="https://img.shields.io/badge/GitHub-blackrion-181717?logo=github&logoColor=white" alt="GitHub"></a>
+<a href="https://applink.feishu.cn/client/message/link/open?token=AmoQJk5dwczIahKlW78ADLU%3D"><img src="https://img.shields.io/badge/上游交流群-中国-red" alt="上游交流群"></a>
 <a href="https://larkcommunity.feishu.cn/wiki/DKkpwgMcJiglIhk88N4cqJEan5f?from=from_copylink"><img src="https://img.shields.io/badge/docs-知识库-3370FF?logo=feishu&logoColor=white" alt="知识库文档"></a>
 </p>
 
@@ -19,9 +19,11 @@
 
 为 Hermes Agent 提供飞书/Lark CardKit v2.0 流式消息卡片插件 — 实时 AI 响应展示，支持打字机效果、统一可折叠面板、按时间线交错显示推理与工具调用等。
 
-> 基于 [Cheerwhy/hermes-lark-streaming](https://github.com/Cheerwhy/hermes-lark-streaming) v0.7.0 版本 fork 后进行改造和优化
+> 基于 [Aowen-Nowor/hermes-lark-streaming](https://github.com/Aowen-Nowor/hermes-lark-streaming) v1.1.3（最初 fork 自 [Cheerwhy/hermes-lark-streaming](https://github.com/Cheerwhy/hermes-lark-streaming) v0.7.0）进行改造和优化，参考了 [baileyh8/hermes-feishu-streaming-card](https://github.com/baileyh8/hermes-feishu-streaming-card) 和 [maidou0215/hermes-feishu-card-progress-plugin](https://github.com/maidou0215/hermes-feishu-card-progress-plugin) 等项目
 >
-> ⚠️ **与上游插件不兼容** — 如已安装原版 `Cheerwhy/hermes-lark-streaming`，请先卸载后再安装本插件。
+> ⚠️ **与上游插件不兼容** — 如已安装原版 `Cheerwhy/hermes-lark-streaming` 或 `Aowen-Nowor/hermes-lark-streaming`，请先卸载后再安装本插件。
+>
+> 📝 **个人 fork** — 由 [blackrion](https://github.com/blackrion) 维护，仅供自用。保留所有上游 MIT 协议条款。
 
 ---
 
@@ -48,30 +50,23 @@
 ### 安装
 
 > **💡 智能安装提示**：将以下提示词复制给 Hermes Agent，它会自动完成安装：
-> 
+>
 > ```
 > 帮我安装飞书敖式卡片：
-> - Gitee：https://gitee.com/Aowen-Nowor/hermes-lark-streaming/raw/github_sync/docs/AGENT_GUIDE.md
-> - GitHub：https://raw.githubusercontent.com/Aowen-Nowor/hermes-lark-streaming/github_sync/docs/AGENT_GUIDE.md
+> - GitHub：https://raw.githubusercontent.com/blackrion/hermes-lark-streaming/main/docs/AGENT_GUIDE.md
 > ```
 
 > 插件会自动读取 `HERMES_HOME` 环境变量定位安装路径（默认 `~/.hermes`），非默认路径下无需额外操作。
 
-**Gitee**
-> 以下两种方式任选其一即可：
-```bash
-# Gitee (SSH)
-hermes plugins install git@gitee.com:Aowen-Nowor/hermes-lark-streaming.git
-# Gitee (HTTPS)
-hermes plugins install https://gitee.com/Aowen-Nowor/hermes-lark-streaming
-```
 **GitHub**
+
 > 以下两种方式任选其一即可：
+
 ```bash
 # GitHub (SSH)
-hermes plugins install git@github.com:Aowen-Nowor/hermes-lark-streaming.git
+hermes plugins install git@github.com:blackrion/hermes-lark-streaming.git
 # GitHub (HTTPS)
-hermes plugins install https://github.com/Aowen-Nowor/hermes-lark-streaming
+hermes plugins install https://github.com/blackrion/hermes-lark-streaming
 ```
 
 提示时输入 `Y` 启用插件，然后重启网关：
@@ -124,19 +119,19 @@ $HERMES_PYTHON ~/.hermes/plugins/hermes-lark-streaming/__main__.py doctor
 
 ```yaml
 hermes_lark_streaming:
-  enabled: true                    # 启用流式卡片
-  linear: true                     # 线性模式：单卡片原地更新（统一面板架构）
-  panel_expanded: false            # 完成态卡片中面板是否保持展开
-  streaming_panel_expanded: false  # 流式态卡片中面板是否保持展开
-  print_strategy: delay            # "fast"（即时）或 "delay"（更丝滑打字机，默认）
-  flush_interval_ms: 100           # 卡片刷新间隔（毫秒，70~2000，默认 100）
-  card_ttl_sec: 600               # 卡片存活检测超时（秒）
-  max_tool_steps: 20               # 统一面板最多显示的工具步骤数（默认20，范围1~100）
-  max_reasoning_rounds: 20         # 统一面板最多显示的推理轮次数（默认20，范围1~100）
-  inject_time: false               # 时间感知模式（详见下方说明）
+  enabled: true # 启用流式卡片
+  linear: true # 线性模式：单卡片原地更新（统一面板架构）
+  panel_expanded: false # 完成态卡片中面板是否保持展开
+  streaming_panel_expanded: false # 流式态卡片中面板是否保持展开
+  print_strategy: delay # "fast"（即时）或 "delay"（更丝滑打字机，默认）
+  flush_interval_ms: 100 # 卡片刷新间隔（毫秒，70~2000，默认 100）
+  card_ttl_sec: 600 # 卡片存活检测超时（秒）
+  max_tool_steps: 20 # 统一面板最多显示的工具步骤数（默认20，范围1~100）
+  max_reasoning_rounds: 20 # 统一面板最多显示的推理轮次数（默认20，范围1~100）
+  inject_time: false # 时间感知模式（详见下方说明）
 
   footer:
-    show_label: false              # 是否显示字段标签
+    show_label: false # 是否显示字段标签
     fields:
       - [status, elapsed, model, cost, compression_exhausted]
       # 可用字段说明：
@@ -164,57 +159,57 @@ hermes_lark_streaming:
 
 ```yaml
 display:
-  show_reasoning: true  # 在统一面板中显示推理内容
+  show_reasoning: true # 在统一面板中显示推理内容
 ```
 
 ### 统一面板超限压缩
 
-飞书卡片2.0 **硬性限制200个元素/组件**，超出会报错 `300305 (element exceeds the limit)`，导致卡片封口失败并触发文本兜底（内容重复）。
+飞书卡片 2.0 **硬性限制 200 个元素/组件**，超出会报错 `300305 (element exceeds the limit)`，导致卡片封口失败并触发文本兜底（内容重复）。
 
-> **元素计数规则**：每个带 `tag` 属性的 JSON 对象都算1个元素，包括嵌套在内层的 `standard_icon`、`plain_text`、`lark_md` 等。
+> **元素计数规则**：每个带 `tag` 属性的 JSON 对象都算 1 个元素，包括嵌套在内层的 `standard_icon`、`plain_text`、`lark_md` 等。
 
 #### 统一面板各项元素消耗
 
-| 组成部分 | 元素数 | 说明 |
-|---------|--------|------|
-| 面板容器 | 1 | `collapsible_panel` |
-| 面板标题 | 2 | `plain_text` + `standard_icon` |
-| 每个推理轮次（最大） | 4 | 标题行 `div`+`standard_icon`+`lark_md` + 推理文本 `markdown` |
-| 每个工具步骤（最大） | 7 | 标题行 `div`+`standard_icon`+`lark_md` + 详情行 `div`+`plain_text` + 结果行 `div`+`lark_md` |
-| 折叠提示（触发时） | 1 | 1个 `markdown` 元素 |
-| 回答文本 | 1~3 | `markdown`，长文本会被拆分 |
-| 页脚 | 2 | `hr` + `markdown` |
-| 卡片头（启用时） | ~3 | `plain_text` + `standard_icon` |
-| 错误面板（有时） | ~4 | `collapsible_panel` + 内部元素 |
+| 组成部分             | 元素数 | 说明                                                                                        |
+| -------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| 面板容器             | 1      | `collapsible_panel`                                                                         |
+| 面板标题             | 2      | `plain_text` + `standard_icon`                                                              |
+| 每个推理轮次（最大） | 4      | 标题行 `div`+`standard_icon`+`lark_md` + 推理文本 `markdown`                                |
+| 每个工具步骤（最大） | 7      | 标题行 `div`+`standard_icon`+`lark_md` + 详情行 `div`+`plain_text` + 结果行 `div`+`lark_md` |
+| 折叠提示（触发时）   | 1      | 1 个 `markdown` 元素                                                                        |
+| 回答文本             | 1~3    | `markdown`，长文本会被拆分                                                                  |
+| 页脚                 | 2      | `hr` + `markdown`                                                                           |
+| 卡片头（启用时）     | ~3     | `plain_text` + `standard_icon`                                                              |
+| 错误面板（有时）     | ~4     | `collapsible_panel` + 内部元素                                                              |
 
 **计算示例**：20 轮推理 + 20 步工具 = 20×4 + 20×7 + 固定开销 ≈ 223（超过 200）
 
-因此默认值设为 `max_tool_steps=20` + `max_reasoning_rounds=20`，配合折叠机制确保大多数场景不超限。即使配置值较高或极端情况下元素仍超限，代码内置了**卡片级元素安全网**——封卡时已知全部元素（面板+answer+footer+error），递归计算实际 tag objects 总数，超过195（200-5缓冲）时自动从面板children最老项目开始裁剪，确保卡片元素永远不会超过200。answer、footer、error panel 永不裁剪。
+因此默认值设为 `max_tool_steps=20` + `max_reasoning_rounds=20`，配合折叠机制确保大多数场景不超限。即使配置值较高或极端情况下元素仍超限，代码内置了**卡片级元素安全网**——封卡时已知全部元素（面板+answer+footer+error），递归计算实际 tag objects 总数，超过 195（200-5 缓冲）时自动从面板 children 最老项目开始裁剪，确保卡片元素永远不会超过 200。answer、footer、error panel 永不裁剪。
 
 #### 配置项
 
 ```yaml
 hermes_lark_streaming:
-  max_tool_steps: 20           # 统一面板最多显示的工具步骤数（默认20，范围1~100）
-  max_reasoning_rounds: 20     # 统一面板最多显示的推理轮次数（默认20，范围1~100）
+  max_tool_steps: 20 # 统一面板最多显示的工具步骤数（默认20，范围1~100）
+  max_reasoning_rounds: 20 # 统一面板最多显示的推理轮次数（默认20，范围1~100）
 ```
 
 超出限制时，早期项目会被折叠为一行提示，例如：`⚡ 还有 10 轮早期推理、5 步早期操作已折叠`
 
-面板标题始终显示**实际总数**（如"3轮 · 44个工具"），折叠提示仅影响面板内展示的内容。
+面板标题始终显示**实际总数**（如"3 轮 · 44 个工具"），折叠提示仅影响面板内展示的内容。
 
 ### /aowen 命令
 
 在飞书中发送 `/aowen` 系列命令，插件直接回复卡片（不经过 Hermes AI）：
 
-| 命令 | 说明 |
-|------|------|
-| `/aowen help` | 显示所有命令列表 |
-| `/aowen status` | 查看插件状态 + 当前配置（折叠面板展示） |
-| `/aowen monitor` | 查看监控面板（卡片创建数、API 调用数、错误码分布等） |
-| `/aowen monitor reset` | 重置监控统计计数器 |
+| 命令                   | 说明                                                                        |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `/aowen help`          | 显示所有命令列表                                                            |
+| `/aowen status`        | 查看插件状态 + 当前配置（折叠面板展示）                                     |
+| `/aowen monitor`       | 查看监控面板（卡片创建数、API 调用数、错误码分布等）                        |
+| `/aowen monitor reset` | 重置监控统计计数器                                                          |
 | `/aowen config reload` | 修改 `~/.hermes/config.yaml` 后，在飞书中发送此命令立即生效，或重启网关生效 |
-| `/aowen` | 同 `/aowen help` |
+| `/aowen`               | 同 `/aowen help`                                                            |
 
 > `/aowen` 是插件的命令前缀，所有 `/aowen` 开头的命令都由插件处理，不经过 Hermes。
 
@@ -244,7 +239,9 @@ FEISHU_DOMAIN=feishu          # feishu=国内版, lark=国际版
 ---
 
 ## 如何提交 ISSUES
+
 > 请查看模板 [ISSUES_TEMPLATE.md](docs/ISSUES_TEMPLATE.md)
+
 ---
 
 ## 致谢
