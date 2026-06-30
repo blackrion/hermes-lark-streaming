@@ -302,7 +302,6 @@ def _mock_client() -> AsyncMock:
     client.cardkit_update = AsyncMock()
     client.update_card = AsyncMock()
     client.reply_text = AsyncMock(return_value="msg_id_reply")
-    client.cardkit_extend_ttl = AsyncMock()
     return client
 
 

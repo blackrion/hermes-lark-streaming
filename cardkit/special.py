@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import ast
 from typing import Any
 
 from .i18n import _LOCALES, _T, _i18n, _t
@@ -14,7 +15,7 @@ from .md import (
     optimize_markdown_style,
 )
 from .table import render_markdown_with_tables
-from .elements import _build_header
+from .elements import _build_header, _escape_md
 
 
 
@@ -26,7 +27,71 @@ __all__ = [
     'build_clarify_confirmed_card',
     'build_approval_card',
     'build_approval_resolved_card',
+    'normalize_clarify_choices',
 ]
+
+
+# ── Clarify choice normalization (v1.3.0 P0-01) ──────────────────────
+
+_CLARIFY_DICT_FIELD_PRIORITY = (
+    "label", "description", "text", "title",
+    "name", "path", "value", "id",
+)
+
+_CLARIFY_MAX_CHOICE_LEN = 80
+
+
+def _extract_readable_from_dict(d: dict) -> str:
+    """Extract the most human-readable string field from a dict."""
+    for field in _CLARIFY_DICT_FIELD_PRIORITY:
+        val = d.get(field)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _normalize_choice(choice: Any) -> str:
+    """Normalize a single clarify choice into a readable display string."""
+    if choice is None:
+        return ""
+    if not isinstance(choice, str):
+        if isinstance(choice, dict):
+            return _extract_readable_from_dict(choice)
+        if isinstance(choice, (list, tuple)):
+            parts = [_normalize_choice(x) for x in choice]
+            return " ".join(p for p in parts if p)[:_CLARIFY_MAX_CHOICE_LEN]
+        choice = str(choice)
+
+    text = choice.strip()
+    if not text:
+        return ""
+
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            parsed = ast.literal_eval(text)
+        except (ValueError, SyntaxError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            extracted = _extract_readable_from_dict(parsed)
+            if extracted:
+                text = extracted
+
+    if len(text) > _CLARIFY_MAX_CHOICE_LEN:
+        text = text[: _CLARIFY_MAX_CHOICE_LEN - 1] + "…"
+
+    return text
+
+
+def normalize_clarify_choices(choices: list[str] | None) -> list[str]:
+    """Normalize a list of clarify choices for both display and AI resolution."""
+    if not choices:
+        return []
+    normalized = []
+    for c in choices:
+        n = _normalize_choice(c)
+        if n:
+            normalized.append(n)
+    return normalized
 
 
 def _summary(text: str) -> dict[str, Any]:
@@ -186,16 +251,19 @@ def build_clarify_card(
         },
         "text": {
             "tag": "lark_md",
-            "content": f"**{question}**",
+            "content": f"**{_escape_md(question)}**",
         },
     })
 
-    if choices:
-        # ── Markdown 全量展示选项列表 ──
+    # v1.3.0 P0-01: normalize choices (dict-repr → readable)
+    normalized_choices = normalize_clarify_choices(choices)
+
+    if normalized_choices:
+        # ── Markdown 全量展示选项列表（转义 lark_md 特殊字符） ──
         option_lines = []
-        for i, choice in enumerate(choices):
+        for i, choice in enumerate(normalized_choices):
             label = chr(ord("A") + i)  # A, B, C, ...
-            option_lines.append(f"{label}. {choice}")
+            option_lines.append(f"{label}. {_escape_md(choice)}")
         options_md = "\n".join(option_lines)
         elements.append({
             "tag": "markdown",
@@ -203,8 +271,9 @@ def build_clarify_card(
         })
 
         # ── 快速选择: select_static 下拉框（无 "其他" 选项） ──
+        # plain_text 不做 markdown 渲染，无需转义；但需用 normalized 文本
         options: list[dict[str, Any]] = []
-        for i, choice in enumerate(choices):
+        for i, choice in enumerate(normalized_choices):
             label = chr(ord("A") + i)
             options.append({
                 "text": {"tag": "plain_text", "content": f"{label}. {choice}"},
@@ -519,9 +588,11 @@ def build_clarify_submitted_card(
         selected: 用户选择的文本
         clarify_id: 唯一标识，用于重试回调路由
     """
+    # v1.3.0 P0-01: escape the selected text for lark_md
+    safe_selected = _escape_md(selected)
     en_selected, zh_selected = _T["clarify_selected"]
-    en_sel_label = en_selected.format(selected)
-    zh_sel_label = zh_selected.format(selected)
+    en_sel_label = en_selected.format(safe_selected)
+    zh_sel_label = zh_selected.format(safe_selected)
 
     en_submitted, zh_submitted = _T["clarify_submitted"]
     en_retry, zh_retry = _T["clarify_retry"]
@@ -537,7 +608,7 @@ def build_clarify_submitted_card(
             },
             "text": {
                 "tag": "lark_md",
-                "content": f"**{question}**",
+                "content": f"**{_escape_md(question)}**",
             },
         },
         {
@@ -617,9 +688,11 @@ def build_clarify_confirmed_card(
         question: 原始问题文本
         selected: 用户选择的文本
     """
+    # v1.3.0 P0-01: escape the selected text for lark_md
+    safe_selected = _escape_md(selected)
     en_selected, zh_selected = _T["clarify_selected"]
-    en_sel_label = en_selected.format(selected)
-    zh_sel_label = zh_selected.format(selected)
+    en_sel_label = en_selected.format(safe_selected)
+    zh_sel_label = zh_selected.format(safe_selected)
 
     en_confirmed, zh_confirmed = _T["clarify_confirmed"]
 
@@ -634,7 +707,7 @@ def build_clarify_confirmed_card(
             },
             "text": {
                 "tag": "lark_md",
-                "content": f"**{question}**",
+                "content": f"**{_escape_md(question)}**",
             },
         },
         {

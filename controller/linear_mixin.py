@@ -52,7 +52,7 @@ from ..cardkit import (
     _count_tag_objects,
     _enforce_card_element_limit,
 )
-from ..cardkit.md import _downgrade_tables, optimize_markdown_style
+from ..cardkit.md import _downgrade_tables, escape_markdown_asterisks, optimize_markdown_style
 from ..state.attachments import build_attachment_summary_elements
 from ..state.linear import UnifiedLinearState
 from ..state.text import split_reasoning_text
@@ -85,13 +85,6 @@ if TYPE_CHECKING:
     from ..feishu import FeishuClient
 
 _logger = logging.getLogger("hermes_lark_streaming")
-
-# ---------------------------------------------------------------------------
-# TTL proactive extension
-# ---------------------------------------------------------------------------
-
-_TTL_EXTEND_THRESHOLD_SEC = 540.0  # Extend TTL when card has lived > 540s
-_TTL_EXTEND_DELTA_SEC = 600        # Extend by 600s
 
 
 def _build_seal_summary(state: UnifiedLinearState | None) -> str:
@@ -450,7 +443,7 @@ class UnifiedControllerMixin:
             if error_message:
                 content = error_message
             elif state and state.answer_text:
-                content = state.answer_text
+                content = escape_markdown_asterisks(state.answer_text)
             else:
                 content = "完成"
 
@@ -504,22 +497,15 @@ class UnifiedControllerMixin:
             return
         assert self._client is not None
 
-        # ── TTL proactive extension ──
-        if session.card_created_at and _time.time() - session.card_created_at > _TTL_EXTEND_THRESHOLD_SEC:
-            try:
-                session.sequence += 1
-                await self._client.cardkit_extend_ttl(
-                    session.card_id,
-                    ttl_seconds=_TTL_EXTEND_DELTA_SEC,
-                    sequence=session.sequence,
-                )
-                _logger.info(
-                    "TTL extended: card=%s seq=%d",
-                    session.card_id[:12],
-                    session.sequence,
-                )
-            except Exception:
-                _logger.debug("TTL extend failed, ignoring", exc_info=True)
+        # v1.3.4 fix (P1): Phase 2 永久失败（schema_error / element_not_found）
+        # 时，不再重试 Phase 2 也不再执行 Phase 3（元素不存在，partial_update
+        # 会无限返回 300313）。清空脏标志避免节流 flush 空转，等内容完成后
+        # 由 _phase2_never_succeeded 检测并走全量重建。
+        if getattr(session, "_phase2_failed", False):
+            state.panel_dirty = False
+            state.answer_dirty = False
+            state.tool_steps_dirty = False
+            return
 
         actions: list[dict[str, Any]] = []
 
@@ -612,31 +598,67 @@ class UnifiedControllerMixin:
                         return
                     if is_schema_error(e):
                         # ── Schema error (300315): permanent, don't retry ──
-                        # This typically means an invalid property on a CardKit
-                        # element.  Log with full error so the developer can
-                        # identify the offending property, then mark element as
-                        # created to prevent infinite retry loops.
+                        # v1.3.4 fix (P1): 原实现 mark "answer" as created 会导致：
+                        #   1. Phase 3 在不存在的元素上 partial_update → 300313 无限重试
+                        #      （~15 次/秒 futile API calls，可能触发飞书频控）
+                        #   2. _phase2_never_succeeded 守卫被掩盖（"answer" in stages → False）
+                        #      → 完成时不走全量重建，改走 preservative seal（再次失败 2 次）
+                        # 修复：设置 _phase2_failed 标志，清空脏数据，return。
                         _logger.error(
                             "unified flush phase 2 SCHEMA ERROR (permanent): %s — "
                             "detail: %s — "
-                            "marking elements as created to prevent retry loop, card=%s",
+                            "setting _phase2_failed, will full-rebuild at completion, card=%s",
                             e, e.extract_schema_detail(), session.card_id[:12],
                         )
-                        session._creation_stages.add("answer")  # Prevent retry loop
-                        session._creation_stages.add("panel")
-                        session._creation_stages.add("hint_removed")
-                        # Fall through to Phase 3 (partial_update may still fail
-                        # if panel wasn't actually added, but at least we won't
-                        # loop infinitely on Phase 2)
-                    else:
-                        _logger.warning("unified flush phase 2 batch_update failed: %s", e)
+                        session._phase2_failed = True
+                        state.panel_dirty = False
+                        state.answer_dirty = False
+                        state.tool_steps_dirty = False
                         return
+                    else:
+                        # v1.3.3 fix (P0): transient API error (rate limit, auth
+                        # refresh, etc.) — _creation_stages stays empty. Reset
+                        # _first_flush_done so next content retries via flush_now.
+                        _logger.warning(
+                            "unified flush phase 2 batch_update failed: %s — "
+                            "resetting _first_flush_done for retry, card=%s",
+                            e, session.card_id[:12] if session.card_id else "?",
+                        )
+                        session._first_flush_done = False
+                        return
+                except asyncio.CancelledError:
+                    # v1.3.4 fix (P1): CancelledError 是 BaseException 子类，
+                    # except Exception 无法捕获。如果 flush 任务被取消（gateway
+                    # 关闭/超时），必须重置 _first_flush_done 否则下次内容到达走
+                    # 节流而非立即 flush，增加"占位卡卡住"风险。重置后 re-raise。
+                    _logger.debug(
+                        "unified flush phase 2 cancelled — resetting _first_flush_done, card=%s",
+                        session.card_id[:12] if session.card_id else "?",
+                    )
+                    session._first_flush_done = False
+                    raise
+                except Exception as e:
+                    # v1.3.3 fix (P0): catch non-FeishuAPIError exceptions (network
+                    # timeout, connection error, etc.) that would otherwise propagate
+                    # to FlushController._do_flush's except Exception, leaving
+                    # _creation_stages empty and causing the "placeholder card stuck
+                    # forever" bug.
+                    # Reset _first_flush_done so the next content arrival retries
+                    # Phase 2 via immediate flush_now instead of throttled schedule.
+                    _logger.warning(
+                        "unified flush phase 2 non-API exception: %s — "
+                        "resetting _first_flush_done for retry, card=%s",
+                        e, session.card_id[:12] if session.card_id else "?",
+                        exc_info=True,
+                    )
+                    session._first_flush_done = False
+                    return
 
             # ── Stream answer text if also dirty ──
             # Note: skip markdown optimization during streaming for performance;
             # it will be applied on seal via _preservative_seal.
             if state.answer_dirty:
-                content = state.answer_text or " "
+                content = escape_markdown_asterisks(state.answer_text or " ")
                 session.sequence += 1
                 _logger.debug(
                     "unified stream: msg=%s seq=%d type=answer len=%d",
@@ -780,7 +802,7 @@ class UnifiedControllerMixin:
         # Note: skip markdown optimization during streaming for performance;
         # it will be applied on seal via _preservative_seal.
         if state.answer_dirty and "answer" in session._creation_stages:
-            content = state.answer_text or " "
+            content = escape_markdown_asterisks(state.answer_text or " ")
             session.sequence += 1
             _logger.debug(
                 "unified stream: msg=%s seq=%d type=answer len=%d",
@@ -1028,7 +1050,7 @@ class UnifiedControllerMixin:
 
                 # ── Flush remaining answer text ──
                 if state.answer_dirty and "answer" in session._creation_stages and not session._streaming_closed:
-                    content = state.answer_text or " "
+                    content = escape_markdown_asterisks(state.answer_text or " ")
                     try:
                         session.sequence += 1
                         _logger.info(
@@ -1099,7 +1121,7 @@ class UnifiedControllerMixin:
             # for performance. Now that streaming is about to be closed, update the answer
             # element with the fully optimized markdown content.
             if state is not None and state.answer_text and "answer" in session._creation_stages:
-                optimized_content = _downgrade_tables(optimize_markdown_style(state.answer_text)) or " "
+                optimized_content = escape_markdown_asterisks(_downgrade_tables(optimize_markdown_style(state.answer_text))) or " "
                 seal_actions.append({
                     "action": "partial_update_element",
                     "params": {
@@ -1397,7 +1419,7 @@ class UnifiedControllerMixin:
                                 })
                             # Update answer element with optimized markdown
                             if state.answer_text and "answer" in session._creation_stages:
-                                optimized_content = _downgrade_tables(optimize_markdown_style(state.answer_text)) or " "
+                                optimized_content = escape_markdown_asterisks(_downgrade_tables(optimize_markdown_style(state.answer_text))) or " "
                                 retry_actions.append({
                                     "action": "partial_update_element",
                                     "params": {
@@ -1582,7 +1604,7 @@ class UnifiedControllerMixin:
 
             # ── Drain answer text ──
             if state.answer_dirty and "answer" in session._creation_stages:
-                content = state.answer_text or " "
+                content = escape_markdown_asterisks(state.answer_text or " ")
                 try:
                     session.sequence += 1
                     _logger.info(
@@ -1665,6 +1687,35 @@ class UnifiedControllerMixin:
         if state:
             state.finalize()
 
+        # v1.3.3 fix (P0 — issue: placeholder_card_stuck):
+        # Detect if Phase 2 never succeeded (answer element was never created).
+        # If so, the preservative seal's content guards will ALL skip (they
+        # check "answer"/"panel" in _creation_stages), and the seal would
+        # "succeed" at closing streaming mode without writing ANY content —
+        # leaving the card permanently stuck at "正在加载上下文...".
+        # Force seal_ok=False to trigger the full card rebuild fallback,
+        # which replaces the entire card with complete content via
+        # build_unified_complete_card + cardkit_update.
+        _phase2_never_succeeded = (
+            session.use_cardkit  # Only CardKit path has Phase 2
+            and session.card_id  # Card was created
+            and (
+                "answer" not in session._creation_stages  # Phase 2 never succeeded
+                or getattr(session, "_phase2_failed", False)  # v1.3.4: Phase 2 permanently failed
+            )
+            and state is not None
+            and (state.answer_text or state.panel_visible or state.reasoning_rounds)
+        )
+        if _phase2_never_succeeded:
+            _logger.warning(
+                "HLS: Phase 2 never succeeded (no answer element created) — "
+                "card stuck at placeholder, forcing full rebuild: card=%s trace=%s "
+                "answer_len=%d panel_visible=%s",
+                (session.card_id or "")[:12], session.card_trace_id,
+                len(state.answer_text) if state else 0,
+                state.panel_visible if state else False,
+            )
+
         # ── Build footer data ──
         footer_data = session.footer
         is_error = session.state in (CREATION_FAILED, TERMINATED)
@@ -1681,6 +1732,11 @@ class UnifiedControllerMixin:
                 is_aborted=is_aborted,
                 error_message=error_message,
             )
+        elif _phase2_never_succeeded:
+            # v1.3.3 fix (P0): Phase 2 never succeeded — skip preservative
+            # seal (which would silently succeed without writing content)
+            # and force full rebuild to replace the entire placeholder card.
+            seal_ok = False  # 触发下方全量重建 fallback
         else:
             seal_ok = await self._preservative_seal(
                 session,
@@ -1800,7 +1856,12 @@ class UnifiedControllerMixin:
                 seal_ok = False
 
         if seal_ok:
-            session.state = COMPLETED
+            # v1.3.4 fix (P1): 如果会话已被 on_aborted 标记为 ABORTED，
+            # 不要覆盖为 COMPLETED——否则状态机不一致（ABORTED→COMPLETED 非法转换）。
+            if session._was_aborted:
+                session.state = ABORTED
+            else:
+                session.state = COMPLETED
             reaction_on_complete = (self._cfg.reaction_on_complete or "").strip()
             if reaction_on_complete and session.card_msg_id and self._client is not None:
                 if await self._client.add_reaction(session.card_msg_id, reaction_on_complete):

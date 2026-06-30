@@ -41,6 +41,23 @@ from lark_oapi.api.im.v1 import (
     ReplyMessageRequestBody,
 )
 
+# v1.3.4 fix (P1): lark_oapi SDK 的 Transport.aexecute 不捕获网络异常，
+# httpx 的 ConnectError/ReadTimeout 等会裸传播；token 刷新失败抛
+# ObtainAccessTokenException（Exception 子类，非 FeishuAPIError）。
+# _retry_transient 的 except FeishuAPIError 无法捕获这些异常，导致
+# 网络瞬断时 cardkit_create 直接失败走 IM 降级（用户看到纯文本而非卡片）。
+# 导入这些异常类型用于 _retry_transient 的网络错误重试。
+try:
+    import httpx
+    _NETWORK_ERROR_BASES: tuple = (httpx.RequestError, httpx.TimeoutException)
+except ImportError:
+    _NETWORK_ERROR_BASES = ()
+try:
+    from lark_oapi.core.exception import ObtainAccessTokenException
+    _TOKEN_ERROR_BASES: tuple = (ObtainAccessTokenException,)
+except ImportError:
+    _TOKEN_ERROR_BASES = ()
+
 _logger = logging.getLogger("hermes_lark_streaming")
 
 
@@ -133,9 +150,10 @@ MSG_NOT_FOUND = 1000023  # 消息不存在/已删除
 # 而非指数退避重试，因此在 is_transient 判断中返回 False，
 # 由调用方（drain/seal 逻辑）决定重试策略。
 CARDKIT_TRANSIENT_CODES = {
-    2200,   # CardKit 内部超时
-    1663,   # CardKit 服务端瞬态错误
-    300000, # CardKit 通用内部错误
+    2200,     # CardKit 内部超时
+    1663,     # CardKit 服务端瞬态错误
+    300000,   # CardKit 通用内部错误
+    99991400, # 接口频率限制（per-API rate limit，HTTP 400）
 }
 
 # 瞬态错误重试策略 — 指数退避
@@ -271,6 +289,32 @@ class FeishuClient:
                     _logger.info(
                         "transient retry: %s attempt=%d/%d code=%s delay=%.2fs",
                         operation, attempt + 1, max_retries, e.code, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+            except asyncio.CancelledError:
+                # v1.3.4: 不要吞 CancelledError，让它正常传播
+                raise
+            except _NETWORK_ERROR_BASES as e:
+                # v1.3.4 fix (P1): 网络错误（httpx ConnectError/ReadTimeout 等）
+                # 是瞬态的，重试后通常成功。
+                if attempt < max_retries:
+                    delay = _TRANSIENT_RETRY_DELAYS[attempt]
+                    _logger.info(
+                        "transient retry (network): %s attempt=%d/%d error=%s delay=%.2fs",
+                        operation, attempt + 1, max_retries, type(e).__name__, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+            except _TOKEN_ERROR_BASES as e:
+                # v1.3.4 fix (P1): token 刷新失败可能因网络瞬断，重试通常成功。
+                if attempt < max_retries:
+                    delay = _TRANSIENT_RETRY_DELAYS[attempt]
+                    _logger.info(
+                        "transient retry (token): %s attempt=%d/%d error=%s delay=%.2fs",
+                        operation, attempt + 1, max_retries, type(e).__name__, delay,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -701,30 +745,6 @@ class FeishuClient:
             self._check(resp, "cardkit_update_summary")
 
         await self._retry_transient("cardkit_update_summary", _do)
-
-    async def cardkit_extend_ttl(
-        self,
-        card_id: str,
-        *,
-        ttl_seconds: int = 600,
-        sequence: int = 0,
-    ) -> None:
-        """Extend the TTL of a streaming CardKit card.
-
-        Uses the settings endpoint to update the streaming TTL, preventing
-        the Feishu platform from closing the streaming session prematurely
-        for long-running conversations.
-        """
-        async def _do():
-            body_builder = SettingsCardRequestBody.builder().settings(
-                self._dumps({"config": {"streaming_mode": True, "streaming_config": {"ttl_seconds": ttl_seconds}}})
-            )
-            body_builder = body_builder.sequence(sequence)
-            request = SettingsCardRequest.builder().card_id(card_id).request_body(body_builder.build()).build()
-            resp = await self._client.cardkit.v1.card.asettings(request)
-            self._check(resp, "cardkit_extend_ttl")
-
-        await self._retry_transient("cardkit_extend_ttl", _do)
 
     async def upload_image(self, image_url: str) -> str | None:
         """下载远程图片并上传到飞书，返回 img_key."""

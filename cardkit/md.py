@@ -17,6 +17,7 @@ __all__ = [
     "_find_tables_outside_code_blocks",
     "_split_long_text",
     "_strip_invalid_image_keys",
+    "escape_markdown_asterisks",
     "optimize_markdown_style",
 ]
 
@@ -61,6 +62,60 @@ def _strip_invalid_image_keys(text: str) -> str:
         return m.group(0) if m.group(2).startswith("img_") else ""
 
     return re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", _replace, text)
+
+
+def escape_markdown_asterisks(text: str) -> str:
+    """保护合法 Markdown 强调结构，转义所有剩余 *。
+
+    飞书 Markdown 解析器比 CommonMark 更激进——会把 2*4000+4*3000
+    中的 *4000+4* 配对为斜体，导致乘号消失、数字拼合。
+
+    解决思路：先保护合法 Markdown 结构（粗体、斜体、代码），再转义一切剩余 *。
+
+    算法：
+    1. 提取代码块/行内代码 → 保护（代码内 * 是字面量）
+    2. 提取粗体 **...** → 保护（粗体永远是排版意图）
+    3. 提取合法斜体 *...* → 保护（开头*不在ASCII字母/数字/下划线后）
+    4. 转义所有剩余 *（飞书可能误配对的）
+    5. 还原保护区域
+    """
+    if '*' not in text:
+        return text
+
+    _protected: list[str] = []
+
+    def _save(m: re.Match) -> str:
+        _protected.append(m.group(0))
+        return f'\x00P{len(_protected) - 1}P\x00'
+
+    # Step 1: 保护代码区域
+    text = re.sub(r'```[\s\S]*?```', _save, text)
+    text = re.sub(r'`[^`]+`', _save, text)
+
+    # Step 2: 保护粗体 **...** 和 ***...***
+    text = re.sub(
+        r'\*{2,3}(?!\s)((?:(?!\*{2,3}).)+?)(?<!\s)\*{2,3}',
+        _save, text, flags=re.DOTALL,
+    )
+
+    # Step 3: 保护合法斜体 *...*
+    # 开头 * 合法条件：前面不是 ASCII 字母/数字/下划线
+    text = re.sub(
+        r'(?<![a-zA-Z0-9_])\*(?!\s)((?:(?!\*).)+?)(?<!\s)\*',
+        _save, text, flags=re.DOTALL,
+    )
+
+    # Step 4: 转义剩余 *
+    text = re.sub(r'(?<!\\)\*(?=[^\s*])', r'\\*', text)
+
+    # Step 5: 还原保护区域 (v1.3.0 perf: O(N) single regex sub)
+    if _protected:
+        text = re.sub(
+            r'\x00P(\d+)P\x00',
+            lambda m: _protected[int(m.group(1))], text
+        )
+
+    return text
 
 
 def optimize_markdown_style(text: str) -> str:

@@ -802,8 +802,10 @@ def handle_pre_gateway_dispatch(event: Any, gateway: Any = None, **kwargs) -> di
             return _skip(f"/aowen {subcommand} unknown")
 
     except Exception:
-        _logger.debug("HLS: /aowen handler error", exc_info=True)
-        return None
+        # v1.3.4 fix (P0): /aowen 已识别但 handler 抛异常时，必须返回 skip
+        # 阻止消息进入 agent。否则 /aowen foo 会被 LLM 当作用户 prompt 处理。
+        _logger.exception("HLS: /aowen handler error — suppressing agent dispatch")
+        return _skip("/aowen handler error suppressed")
 
 
 def _do_reset() -> None:

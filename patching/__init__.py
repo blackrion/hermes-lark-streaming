@@ -59,6 +59,8 @@ __all__ = [
     '_gateway_cards_lock',
     '_gw_runner_patched',
     '_patch_status',
+    # v1.4.0: FeishuAdapter patched-class registry (deferred loading fix)
+    '_patched_feishu_classes',
     # Functions
     '_get_config',
     '_get_event_message_id',
@@ -67,6 +69,10 @@ __all__ = [
     'apply_patches',
     '_schedule_direct_patch',
     '_apply_direct_agent_patch',
+    # v1.4.0: FeishuAdapter patch helpers (deferred loading fix)
+    '_apply_feishu_adapter_patches',
+    '_apply_feishu_adapter_deferred_repatch',
+    '_verify_feishu_patch_identity',
     # From gateway
     '_wrap_handle_message',
     '_wrap_handle_message_with_agent',
@@ -164,6 +170,19 @@ _gw_runner_patched: bool = False
 # doctor CLI command (__main__.py doctor) to report which patches were
 # successfully applied and which failed/skipped.
 _patch_status: dict[str, Any] = {}
+
+# ── FeishuAdapter patched-class registry (v1.4.0) ───────────────────
+# hermes v0.17.0+ 引入 bundled platform deferred loading：插件 apply_patches()
+# 在启动早期运行时，真身 hermes_plugins.feishu_platform.adapter 尚未加载，
+# 只能 patch 替身 plugins.platforms.feishu.adapter（源码路径）。gateway 启动后
+# deferred loader 触发加载真身，得到一个与替身不同的 class object → 早期 patch
+# 形同虚设，clarify/delegate 卡片降级为纯文本。
+#
+# 此 set 用 id(cls) 记录所有已打过 patch 的 FeishuAdapter class 对象，配合
+# _schedule_direct_patch 的延迟重打逻辑：2s 后（deferred loader 一般已完成）
+# 重新 resolve 真身 class，若 id 不在 set 里则重新 patch（避免对同一个 class
+# 重复打补丁）。详见 _apply_feishu_adapter_patches / _schedule_direct_patch。
+_patched_feishu_classes: set[int] = set()
 
 def _get_event_message_id() -> str | None:
     ctx = _msg_ctx.get()
@@ -441,80 +460,7 @@ def apply_patches() -> None:
     feishu_patched = False
     FeishuAdapter = compat.feishu_adapter_class
     if FeishuAdapter is not None:
-        try:
-            FeishuAdapter.send = _wrap_feishu_adapter_send(FeishuAdapter.send)
-            try:
-                FeishuAdapter.edit_message = _wrap_feishu_adapter_edit(FeishuAdapter.edit_message)
-            except AttributeError:
-                _logger.debug("hermes-lark-streaming: FeishuAdapter.edit_message not found, edit interception skipped")
-            # Phase 3: Reaction → card status indicator
-            # Hermes ≥某个版本 将 add_reaction/delete_reaction 改为
-            # _add_reaction/_remove_reaction（private），需兼容两种命名
-            try:
-                FeishuAdapter.add_reaction = _wrap_feishu_adapter_add_reaction(FeishuAdapter.add_reaction)
-            except AttributeError:
-                try:
-                    FeishuAdapter._add_reaction = _wrap_feishu_adapter_add_reaction(FeishuAdapter._add_reaction)
-                except AttributeError:
-                    _logger.debug("hermes-lark-streaming: FeishuAdapter.add_reaction/_add_reaction not found, reaction interception skipped")
-            try:
-                FeishuAdapter.delete_reaction = _wrap_feishu_adapter_delete_reaction(FeishuAdapter.delete_reaction)
-            except AttributeError:
-                try:
-                    FeishuAdapter._remove_reaction = _wrap_feishu_adapter_delete_reaction(FeishuAdapter._remove_reaction)
-                except AttributeError:
-                    _logger.debug("hermes-lark-streaming: FeishuAdapter.delete_reaction/_remove_reaction not found, reaction interception skipped")
-            # NOTE(v0.15.4): send_image_file / send_image interceptors DELETED (2026-06-09).
-            # The v0.15.3 interception was fundamentally broken — it injected file:// URLs
-            # into session.text.on_partial() which were then stripped by
-            # _strip_invalid_image_keys(), and suppressed the original standalone
-            # send, causing images to disappear entirely.
-            # Images are now sent as standalone messages (pre-v0.15.3 behavior).
-            # The three zombie functions (_try_add_image_to_session,
-            # _wrap_feishu_adapter_send_image_file, _wrap_feishu_adapter_send_image)
-            # have been fully removed from patching/ sub-package.
-
-            # ── Clarify interactive card patches ──
-            # Patch send_clarify to render interactive CardKit cards instead of
-            # text-based numbered lists.  Patch _on_card_action_trigger to handle
-            # clarify card callbacks (dropdown select, text input).
-            clarify_patched = False
-            try:
-                FeishuAdapter.send_clarify = _wrap_feishu_adapter_send_clarify(FeishuAdapter.send_clarify)
-                clarify_patched = True
-                _logger.info("hermes-lark-streaming: FeishuAdapter.send_clarify patched ✓ (clarify interactive card)")
-            except AttributeError:
-                _logger.debug("hermes-lark-streaming: FeishuAdapter.send_clarify not found, clarify card skipped")
-            try:
-                FeishuAdapter._on_card_action_trigger = _wrap_feishu_card_action_trigger(FeishuAdapter._on_card_action_trigger)
-                _logger.info("hermes-lark-streaming: FeishuAdapter._on_card_action_trigger patched ✓ (clarify card callback)")
-            except AttributeError:
-                _logger.debug("hermes-lark-streaming: FeishuAdapter._on_card_action_trigger not found, clarify callback skipped")
-
-            # ── Approval interactive card patches ──
-            # Patch send_exec_approval to render CardKit 2.0 cards instead of
-            # the default Card 1.0 plain cards.  Also patch
-            # _build_resolved_approval_card to return CardKit 2.0 for the
-            # callback response when a user clicks an approval button.
-            approval_patched = False
-            try:
-                FeishuAdapter.send_exec_approval = _wrap_feishu_adapter_send_exec_approval(FeishuAdapter.send_exec_approval)
-                approval_patched = True
-                _logger.info("hermes-lark-streaming: FeishuAdapter.send_exec_approval patched ✓ (approval CardKit 2.0 card)")
-            except AttributeError:
-                _logger.debug("hermes-lark-streaming: FeishuAdapter.send_exec_approval not found, approval card skipped")
-            try:
-                FeishuAdapter._build_resolved_approval_card = _wrap_feishu_adapter_build_resolved_approval(
-                    FeishuAdapter._build_resolved_approval_card
-                )
-                _logger.info("hermes-lark-streaming: FeishuAdapter._build_resolved_approval_card patched ✓ (approval resolved CardKit 2.0)")
-            except AttributeError:
-                _logger.debug("hermes-lark-streaming: FeishuAdapter._build_resolved_approval_card not found, resolved approval card skipped")
-
-            feishu_patched = True
-            _logger.info("hermes-lark-streaming: FeishuAdapter.send/edit/reaction/image/clarify patched ✓ (gateway message cards enabled)")
-        except AttributeError as e:
-            _logger.info("hermes-lark-streaming: FeishuAdapter patch skipped (%s)", e)
+        feishu_patched = _apply_feishu_adapter_patches(FeishuAdapter, is_repatch=False)
     else:
         _logger.info("hermes-lark-streaming: FeishuAdapter not available via HermesCompat, patch skipped")
 
@@ -548,18 +494,178 @@ def apply_patches() -> None:
     _schedule_direct_patch()
 
 
+def _apply_feishu_adapter_patches(FeishuAdapter, *, is_repatch: bool = False) -> bool:
+    """Apply all FeishuAdapter method patches to the given class.
+
+    v1.4.0: 抽取为独立函数，便于 _schedule_direct_patch 在 hermes v0.17.0+
+    bundled platform deferred loading 完成后对真身 class 重新打补丁。
+    用 id(FeishuAdapter) 去重，记录到 _patched_feishu_classes set。
+    """
+    if FeishuAdapter is None:
+        return False
+
+    cls_id = id(FeishuAdapter)
+    if cls_id in _patched_feishu_classes:
+        if is_repatch:
+            _logger.debug(
+                "hermes-lark-streaming: FeishuAdapter (class_id=%s) already patched, skip re-patch",
+                cls_id,
+            )
+        return True
+
+    try:
+        FeishuAdapter.send = _wrap_feishu_adapter_send(FeishuAdapter.send)
+        try:
+            FeishuAdapter.edit_message = _wrap_feishu_adapter_edit(FeishuAdapter.edit_message)
+        except AttributeError:
+            _logger.debug("hermes-lark-streaming: FeishuAdapter.edit_message not found, edit interception skipped")
+        try:
+            FeishuAdapter.add_reaction = _wrap_feishu_adapter_add_reaction(FeishuAdapter.add_reaction)
+        except AttributeError:
+            try:
+                FeishuAdapter._add_reaction = _wrap_feishu_adapter_add_reaction(FeishuAdapter._add_reaction)
+            except AttributeError:
+                _logger.debug("hermes-lark-streaming: FeishuAdapter.add_reaction/_add_reaction not found, reaction interception skipped")
+        try:
+            FeishuAdapter.delete_reaction = _wrap_feishu_adapter_delete_reaction(FeishuAdapter.delete_reaction)
+        except AttributeError:
+            try:
+                FeishuAdapter._remove_reaction = _wrap_feishu_adapter_delete_reaction(FeishuAdapter._remove_reaction)
+            except AttributeError:
+                _logger.debug("hermes-lark-streaming: FeishuAdapter.delete_reaction/_remove_reaction not found, reaction interception skipped")
+
+        # ── Clarify interactive card patches ──
+        try:
+            FeishuAdapter.send_clarify = _wrap_feishu_adapter_send_clarify(FeishuAdapter.send_clarify)
+            _logger.info("hermes-lark-streaming: FeishuAdapter.send_clarify patched ✓ (clarify interactive card)")
+        except AttributeError:
+            _logger.debug("hermes-lark-streaming: FeishuAdapter.send_clarify not found, clarify card skipped")
+        try:
+            FeishuAdapter._on_card_action_trigger = _wrap_feishu_card_action_trigger(FeishuAdapter._on_card_action_trigger)
+            _logger.info("hermes-lark-streaming: FeishuAdapter._on_card_action_trigger patched ✓ (clarify card callback)")
+        except AttributeError:
+            _logger.debug("hermes-lark-streaming: FeishuAdapter._on_card_action_trigger not found, clarify callback skipped")
+
+        # ── Approval interactive card patches (我们 fork 独有) ──
+        try:
+            FeishuAdapter.send_exec_approval = _wrap_feishu_adapter_send_exec_approval(FeishuAdapter.send_exec_approval)
+            _logger.info("hermes-lark-streaming: FeishuAdapter.send_exec_approval patched ✓ (approval CardKit 2.0 card)")
+        except AttributeError:
+            _logger.debug("hermes-lark-streaming: FeishuAdapter.send_exec_approval not found, approval card skipped")
+        try:
+            FeishuAdapter._build_resolved_approval_card = _wrap_feishu_adapter_build_resolved_approval(
+                FeishuAdapter._build_resolved_approval_card
+            )
+            _logger.info("hermes-lark-streaming: FeishuAdapter._build_resolved_approval_card patched ✓ (approval resolved CardKit 2.0)")
+        except AttributeError:
+            _logger.debug("hermes-lark-streaming: FeishuAdapter._build_resolved_approval_card not found, resolved approval card skipped")
+
+        # Record this class as patched AFTER successful patch
+        _patched_feishu_classes.add(cls_id)
+        _logger.info(
+            "hermes-lark-streaming: FeishuAdapter.send/edit/reaction/image/clarify patched ✓ "
+            "(gateway message cards enabled, class_id=%s)",
+            cls_id,
+        )
+        return True
+    except AttributeError as e:
+        _logger.info("hermes-lark-streaming: FeishuAdapter patch skipped (%s)", e)
+        return False
+
+
+def _apply_feishu_adapter_deferred_repatch(*, stage: str) -> None:
+    """Re-resolve FeishuAdapter and re-patch if a new class object appears.
+
+    v1.4.0: 内部辅助函数，供 _schedule_direct_patch 在延迟阶段调用。
+    """
+    try:
+        new_cls = HermesCompat().resolve_feishu_adapter_class_fresh()
+    except Exception as e:
+        _logger.debug(
+            "hermes-lark-streaming: FeishuAdapter deferred re-patch (%s) — resolve failed: %s",
+            stage, e,
+        )
+        return
+
+    if new_cls is None:
+        _logger.debug(
+            "hermes-lark-streaming: FeishuAdapter deferred re-patch (%s) — class still not resolvable, skip",
+            stage,
+        )
+        return
+
+    cls_id = id(new_cls)
+    if cls_id in _patched_feishu_classes:
+        _logger.debug(
+            "hermes-lark-streaming: FeishuAdapter deferred re-patch (%s) — class_id=%s already patched, skip",
+            stage, cls_id,
+        )
+        return
+
+    _logger.info(
+        "hermes-lark-streaming: FeishuAdapter deferred re-patch (%s) — new class_id=%s detected, applying patches",
+        stage, cls_id,
+    )
+    ok = _apply_feishu_adapter_patches(new_cls, is_repatch=True)
+    if ok:
+        _logger.warning(
+            "hermes-lark-streaming: FeishuAdapter re-patched on deferred-loaded class "
+            "(v0.17.0+ bundled platform). This indicates hermes deferred loading "
+            "created a separate class object."
+        )
+
+
+def _verify_feishu_patch_identity(adapter_instance: Any) -> bool:
+    """Verify that an adapter instance's class has been patched by HLS.
+
+    v1.4.0: 运行时身份校验。
+    """
+    if adapter_instance is None:
+        return False
+    cls = type(adapter_instance)
+    cls_id = id(cls)
+    if cls_id in _patched_feishu_classes:
+        return True
+    _logger.error(
+        "HLS: FeishuAdapter identity mismatch! adapter instance class id=%s "
+        "not in patched classes %s. Clarify/delegate cards will fall back to "
+        "text. Run /aowen doctor.",
+        cls_id, sorted(_patched_feishu_classes),
+    )
+    return False
+
+
 def _schedule_direct_patch() -> None:
-    """Schedule _apply_direct_agent_patch to run after Hermes finishes loading."""
+    """Schedule _apply_direct_agent_patch + FeishuAdapter re-patch after Hermes finishes loading.
+
+    v1.4.0: 除了原有的 2s 后 AIAgent.run_conversation 重打，新增 FeishuAdapter
+    延迟重打 — hermes v0.17.0+ bundled platform deferred loading 场景下，
+    apply_patches() 启动早期真身尚未加载，只能 patch 替身；2s 后 deferred
+    loader 触发加载真身，此时必须重新 resolve 真身并 patch。
+
+    调度策略:
+      - t=2s: 第一轮 — AIAgent 重打 + FeishuAdapter 真身 re-patch
+      - t=10s: 第二轮兜底 — 仅 FeishuAdapter re-patch
+    """
     import threading
 
     def _delayed_patch():
         import time
         time.sleep(2)  # Wait for Hermes to finish loading
         _apply_direct_agent_patch()
+        _apply_feishu_adapter_deferred_repatch(stage="primary")
+
+        # 二次兜底：某些慢加载环境 deferred loading 可能延迟更久
+        time.sleep(8)
+        _apply_feishu_adapter_deferred_repatch(stage="secondary")
 
     t = threading.Thread(target=_delayed_patch, daemon=True)
     t.start()
     _logger.info("hermes-lark-streaming: scheduled direct agent patch (2s delay)")
+    _logger.info(
+        "hermes-lark-streaming: scheduled FeishuAdapter deferred re-patch "
+        "(2s primary + 8s secondary fallback, v0.17.0+ bundled platform)"
+    )
 
 
 def _apply_direct_agent_patch() -> None:
@@ -610,7 +716,11 @@ def _apply_direct_agent_patch() -> None:
             }
             # 只在原方法支持时才传 persist_user_timestamp
             import inspect
-            orig_params = inspect.signature(_orig_method).parameters
+            # v1.3.4 fix (P1): inspect.signature 可能对 C 扩展/wrapped callable 抛异常
+            try:
+                orig_params = inspect.signature(_orig_method).parameters
+            except (ValueError, TypeError):
+                orig_params = {}
             if "persist_user_timestamp" in orig_params:
                 call_kwargs["persist_user_timestamp"] = persist_user_timestamp
             call_kwargs.update(kwargs)

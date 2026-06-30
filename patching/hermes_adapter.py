@@ -140,6 +140,16 @@ class HermesCompat:
         _logger.debug("HLS: FeishuAdapter not available")
         return None
 
+    def resolve_feishu_adapter_class_fresh(self) -> Any | None:
+        """Re-resolve FeishuAdapter class without reusing cached state.
+
+        v1.4.0: 新增方法，供 _schedule_direct_patch 延迟重打阶段调用。
+        每次 invoke 都重新跑 _resolve_feishu_adapter_class 解析逻辑（不复用
+        self.feishu_adapter_class 缓存），返回当前 sys.modules 里能拿到的
+        最新 class。
+        """
+        return self._resolve_feishu_adapter_class()
+
     @staticmethod
     def _extract_adapter_class_from_factory(factory: Any) -> Any | None:
         """Extract FeishuAdapter class from a registry adapter factory."""

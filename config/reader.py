@@ -8,12 +8,16 @@
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 import yaml
+
+_logger = logging.getLogger("hermes_lark_streaming")
 
 
 def _get_hermes_config_path() -> Path:
@@ -32,6 +36,58 @@ def _to_bool(val: Any, default: bool = False) -> bool:
         return val.lower() in ("true", "1", "yes", "on")
     if isinstance(val, (int, float)):
         return val != 0
+    return default
+
+
+def _to_int(val: Any, default: int) -> int:
+    """安全 int 转换，类型错误时返回 default.
+
+    v1.3.2 fix (修复 7): int(float('inf')) 抛 OverflowError，
+    int(float('nan')) 抛 ValueError — 都需捕获。
+    """
+    if isinstance(val, bool):
+        return int(val)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        try:
+            return int(val)
+        except (OverflowError, ValueError):
+            _logger.warning("HLS: config float value %r cannot convert to int, using default %d", val, default)
+            return default
+    if isinstance(val, str):
+        try:
+            return int(val)
+        except ValueError:
+            _logger.warning("HLS: config value %r is not a valid int, using default %d", val, default)
+            return default
+    return default
+
+
+def _to_float(val: Any, default: float) -> float:
+    """安全 float 转换，类型错误时返回 default.
+
+    v1.3.2 fix (修复 7): float('nan') / float('inf') 是合法 Python float
+    但导致 max()/min() 比较失效 — 需拒绝。
+    """
+    if isinstance(val, bool):
+        return float(val)
+    if isinstance(val, (int, float)):
+        result = float(val)
+        if math.isnan(result) or math.isinf(result):
+            _logger.warning("HLS: config float value %r is nan/inf, using default %f", val, default)
+            return default
+        return result
+    if isinstance(val, str):
+        try:
+            result = float(val)
+        except ValueError:
+            _logger.warning("HLS: config value %r is not a valid float, using default %f", val, default)
+            return default
+        if math.isnan(result) or math.isinf(result):
+            _logger.warning("HLS: config float value %r is nan/inf, using default %f", val, default)
+            return default
+        return result
     return default
 
 
@@ -109,8 +165,8 @@ class Config:
         默认20，确保即使在极端情况下也不会超限。
         """
         sec = self._plugin_sec()
-        val = sec.get("max_tool_steps", 20)
-        return max(1, min(100, int(val)))
+        val = _to_int(sec.get("max_tool_steps", 20), default=20)
+        return max(1, min(100, val))
 
     @property
     def max_reasoning_rounds(self) -> int:
@@ -121,8 +177,8 @@ class Config:
         默认20，确保即使在极端情况下也不会超限。
         """
         sec = self._plugin_sec()
-        val = sec.get("max_reasoning_rounds", 20)
-        return max(1, min(100, int(val)))
+        val = _to_int(sec.get("max_reasoning_rounds", 20), default=20)
+        return max(1, min(100, val))
 
     @property
     def print_strategy(self) -> str:
@@ -145,14 +201,14 @@ class Config:
         避免服务端 flush 间隔低于客户端渲染间隔导致过度缓冲或频控问题。
         """
         sec = self._plugin_sec()
-        ms = float(sec.get("flush_interval_ms", 100))
+        ms = _to_float(sec.get("flush_interval_ms", 200), default=200.0)
         return max(70.0, min(2000.0, ms))
 
     @property
     def flush_interval_sec(self) -> float:
         """流式卡片刷新间隔（秒），可配置.
 
-        默认 0.1 秒（100ms）。降低此值使打字效果更流畅但增加API调用量和客户端负担；
+        默认 0.2 秒（200ms）。降低此值使打字效果更流畅但增加API调用量和客户端负担；
         提高此值减少API调用量但文字出现稍有延迟。
 
         注意：此值仅影响 CardKit 流式通道，IM PATCH 降级通道固定为 1.5 秒。
@@ -191,7 +247,7 @@ class Config:
     @property
     def card_duration_sec(self) -> int:
         """卡片存活检测超时."""
-        return int(self._plugin_sec().get("card_ttl_sec", 600))
+        return _to_int(self._plugin_sec().get("card_ttl_sec", 600), default=600)
 
     @property
     def footer_fields(self) -> list[list[str]]:
